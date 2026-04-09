@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	xident "github.com/xident-io/xident-go"
+	xident "github.com/xident-io/go-sdk"
 )
 
 func main() {

@@ -9,7 +9,7 @@ Server-side Go SDK for [Xident](https://xident.io) age and identity verification
 ## Installation
 
 ```bash
-go get github.com/xident-io/xident-go
+go get github.com/xident-io/go-sdk
 ```
 
 ## Quick Start
@@ -22,7 +22,7 @@ import (
     "fmt"
     "log"
 
-    xident "github.com/xident-io/xident-go"
+    xident "github.com/xident-io/go-sdk"
 )
 
 func main() {
