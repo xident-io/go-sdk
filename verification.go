@@ -47,13 +47,6 @@ type InitParams struct {
 	// Metadata is an opaque string (up to 500 chars) passed through to the
 	// webhook. Use it for order IDs, plan names, etc.
 	Metadata string `json:"metadata,omitempty"`
-
-	// LivenessDifficulty controls liveness challenge difficulty
-	// ("easy", "normal", "hard").
-	LivenessDifficulty string `json:"liveness_difficulty,omitempty"`
-
-	// Purpose describes why verification is needed (shown to the user).
-	Purpose string `json:"purpose,omitempty"`
 }
 
 // Init creates a new verification session and returns an init token.
@@ -106,7 +99,7 @@ func (s *VerificationService) GetResult(ctx context.Context, token string) (*Ses
 		return nil, nil, fmt.Errorf("xident: token cannot be empty")
 	}
 
-	path := "status/" + url.PathEscape(token)
+	path := "result/" + url.PathEscape(token)
 	req, err := s.client.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, nil, err

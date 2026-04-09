@@ -15,13 +15,13 @@ import (
 
 func TestNewRequest_GET(t *testing.T) {
 	c := NewClient("sk_test_key")
-	req, err := c.newRequest(http.MethodGet, "status/abc123", nil)
+	req, err := c.newRequest(http.MethodGet, "result/abc123", nil)
 	if err != nil {
 		t.Fatalf("newRequest error: %v", err)
 	}
 
 	// Check URL construction.
-	wantURL := DefaultBaseURL + "/" + apiVersion + "/status/abc123"
+	wantURL := DefaultBaseURL + "/" + apiVersion + "/result/abc123"
 	if req.URL.String() != wantURL {
 		t.Errorf("URL = %q, want %q", req.URL.String(), wantURL)
 	}
@@ -67,12 +67,12 @@ func TestNewRequest_POST(t *testing.T) {
 
 func TestNewRequest_CustomBaseURL(t *testing.T) {
 	c := NewClient("sk_test_key", WithBaseURL("https://staging.xident.io"))
-	req, err := c.newRequest(http.MethodGet, "status/abc", nil)
+	req, err := c.newRequest(http.MethodGet, "result/abc", nil)
 	if err != nil {
 		t.Fatalf("newRequest error: %v", err)
 	}
 
-	want := "https://staging.xident.io/" + apiVersion + "/status/abc"
+	want := "https://staging.xident.io/" + apiVersion + "/result/abc"
 	if req.URL.String() != want {
 		t.Errorf("URL = %q, want %q", req.URL.String(), want)
 	}

@@ -77,8 +77,6 @@ func TestVerification_Init_AllParams(t *testing.T) {
 			"theme":               "dark",
 			"locale":              "de",
 			"metadata":            `{"plan":"pro"}`,
-			"liveness_difficulty": "hard",
-			"purpose":             "age gate",
 		}
 
 		for k, want := range checks {
@@ -99,8 +97,6 @@ func TestVerification_Init_AllParams(t *testing.T) {
 		Theme:              "dark",
 		Locale:             "de",
 		Metadata:           `{"plan":"pro"}`,
-		LivenessDifficulty: "hard",
-		Purpose:            "age gate",
 	})
 	if err != nil {
 		t.Fatalf("Init() error: %v", err)
@@ -203,7 +199,7 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/status/sess_abc", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/sess_abc", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
@@ -264,7 +260,7 @@ func TestVerification_GetResult_Pending(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/status/sess_p", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/sess_p", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{
 			"success": true,
 			"data": {
@@ -299,7 +295,7 @@ func TestVerification_GetResult_Failed(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/status/sess_f", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/sess_f", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{
 			"success": true,
 			"data": {
@@ -330,7 +326,7 @@ func TestVerification_GetResult_Canceled(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/status/sess_c", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/sess_c", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{
 			"success": true,
 			"data": {
@@ -367,7 +363,7 @@ func TestVerification_GetResult_NotFound(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/status/nonexistent", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/nonexistent", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprint(w, `{
 			"success": false,
