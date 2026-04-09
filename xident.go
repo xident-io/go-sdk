@@ -31,6 +31,7 @@ package xident
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -84,6 +85,13 @@ func NewClient(apiKey string, opts ...Option) *Client {
 		},
 		maxRetries: DefaultMaxRetries,
 		userAgent:  defaultUserAgent,
+	}
+
+	if strings.HasPrefix(apiKey, "pk_") {
+		panic("xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*)")
+	}
+	if !strings.HasPrefix(apiKey, "sk_live_") && !strings.HasPrefix(apiKey, "sk_test_") {
+		panic("xident: invalid API key format. Must start with \"sk_live_\" or \"sk_test_\"")
 	}
 
 	for _, opt := range opts {

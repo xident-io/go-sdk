@@ -3,6 +3,7 @@ package xident
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,5 +93,57 @@ func TestVersion(t *testing.T) {
 	v := Version()
 	if v != SDKVersion {
 		t.Errorf("Version() = %q, want %q", v, SDKVersion)
+	}
+}
+
+func TestNewClient_RejectsPublicKey(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for public key, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "pk_") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+	NewClient("pk_live_abc123")
+}
+
+func TestNewClient_RejectsInvalidFormat(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for invalid key format, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "invalid API key format") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+	NewClient("some_random_key")
+}
+
+func TestNewClient_AcceptsLiveKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic for sk_live_ key: %v", r)
+		}
+	}()
+	c := NewClient("sk_live_abc123")
+	if c.apiKey != "sk_live_abc123" {
+		t.Errorf("apiKey = %q, want %q", c.apiKey, "sk_live_abc123")
+	}
+}
+
+func TestNewClient_AcceptsTestKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic for sk_test_ key: %v", r)
+		}
+	}()
+	c := NewClient("sk_test_abc123")
+	if c.apiKey != "sk_test_abc123" {
+		t.Errorf("apiKey = %q, want %q", c.apiKey, "sk_test_abc123")
 	}
 }
