@@ -1,9 +1,14 @@
 // Example: Pure Go HTTP server with Xident verification.
 //
 // This demonstrates the complete integration flow:
-// 1. Create a verification session and redirect the user
-// 2. Handle the callback webhook
-// 3. Handle the redirect and check the result server-side
+//  1. POST /verify        - create a verification session and redirect the user
+//  2. GET  /callback      - the browser is redirected back here with the result
+//     token; re-verify server-side (this is the primary flow)
+//  3. POST /webhook       - OPTIONAL signed server-to-server notification
+//
+// The callback_url is a plain browser GET redirect, NOT a signed webhook. The
+// widget appends ?status=success|failed|cancelled, token=xtk_... (the RESULT
+// token, distinct from the xit_ init token), and user_id (if you supplied one).
 //
 // Run with:
 //
@@ -29,11 +34,6 @@ func main() {
 		log.Fatal("XIDENT_SECRET_KEY environment variable is required")
 	}
 
-	webhookSecret := os.Getenv("XIDENT_WEBHOOK_SECRET")
-	if webhookSecret == "" {
-		log.Fatal("XIDENT_WEBHOOK_SECRET environment variable is required")
-	}
-
 	client := xident.NewClient(apiKey,
 		xident.WithTimeout(15*time.Second),
 	)
@@ -43,54 +43,32 @@ func main() {
 	// Start verification: creates a session and redirects the user.
 	mux.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
 		result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
-			CallbackURL: "https://example.com/webhook",
+			// The browser is redirected back to CallbackURL when the flow ends.
+			CallbackURL: "https://example.com/callback",
 			MinAge:      18,
-			SuccessURL:  "https://example.com/success",
-			FailedURL:   "https://example.com/failed",
 			UserID:      "user_123",
+			// SuccessURL / FailedURL are optional status-specific redirect
+			// overrides; the callback query params carry the result either way.
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to init: %v", err), 500)
 			return
 		}
 
+		// result.Token is the init token (xit_) — do NOT pass it to GetResult.
 		// Redirect user to the verification widget.
 		http.Redirect(w, r, result.VerifyURL, http.StatusFound)
 	})
 
-	// Webhook handler: receives notifications when verification completes.
-	mux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Failed to read body", 400)
-			return
-		}
+	// Callback: the widget redirects the browser here after verification with
+	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	// ALWAYS re-verify server-side -- never trust the query params alone.
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		status := q.Get("status") // "success", "failed", or "cancelled"
+		token := q.Get("token")   // the RESULT token (xtk_...)
+		userID := q.Get("user_id")
 
-		signature := r.Header.Get("X-Xident-Signature")
-
-		event, err := client.Webhooks.ConstructEvent(body, signature, webhookSecret)
-		if err != nil {
-			log.Printf("Webhook verification failed: %v", err)
-			http.Error(w, "Invalid signature", 400)
-			return
-		}
-
-		switch event.Type {
-		case "session.completed":
-			log.Printf("Verification completed: %v", event.Data)
-		case "session.failed":
-			log.Printf("Verification failed: %v", event.Data)
-		default:
-			log.Printf("Unknown event type: %s", event.Type)
-		}
-
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// Success redirect: user lands here after successful verification.
-	// ALWAYS re-verify server-side -- never trust URL parameters alone.
-	mux.HandleFunc("/success", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
 		if token == "" {
 			http.Error(w, "Missing token", 400)
 			return
@@ -107,13 +85,48 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"verified":    session.IsVerified(),
-			"status":      session.Status,
-			"age_bracket": session.AgeBracket(),
-			"method":      session.Method(),
-			"terminal":    session.IsTerminal(),
+			"callback_status": status, // British "cancelled" on the callback
+			"user_id":         userID,
+			"verified":        session.IsVerified(),
+			"status":          session.Status, // American "canceled" from /result
+			"age_bracket":     session.AgeBracket(),
+			"method":          session.Method(),
+			"terminal":        session.IsTerminal(),
 		})
 	})
+
+	// OPTIONAL: signed server-to-server webhook. This is a separate feature
+	// from the callback redirect above and is NOT required for the core flow.
+	// Enable it only if you configured a webhook secret in the dashboard.
+	if webhookSecret := os.Getenv("XIDENT_WEBHOOK_SECRET"); webhookSecret != "" {
+		mux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read body", 400)
+				return
+			}
+
+			signature := r.Header.Get("X-Xident-Signature")
+
+			event, err := client.Webhooks.ConstructEvent(body, signature, webhookSecret)
+			if err != nil {
+				log.Printf("Webhook verification failed: %v", err)
+				http.Error(w, "Invalid signature", 400)
+				return
+			}
+
+			switch event.Type {
+			case "session.completed":
+				log.Printf("Verification completed: %v", event.Data)
+			case "session.failed":
+				log.Printf("Verification failed: %v", event.Data)
+			default:
+				log.Printf("Unknown event type: %s", event.Type)
+			}
+
+			w.WriteHeader(http.StatusOK)
+		})
+	}
 
 	addr := ":8080"
 	log.Printf("Server starting on %s", addr)

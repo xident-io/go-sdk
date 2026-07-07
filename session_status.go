@@ -22,6 +22,12 @@ const (
 
 	// SessionStatusCanceled means the session was canceled by the user
 	// or the system before completion.
+	//
+	// Spelling note: the GET /verify/v1/result endpoint (what GetResult reads)
+	// uses the American spelling "canceled" -- that is the correct value here.
+	// The browser callback redirect's ?status= query param uses the British
+	// spelling "cancelled" instead. They refer to the same state; only the
+	// surface differs.
 	SessionStatusCanceled SessionStatus = "canceled"
 
 	// SessionStatusClaimed means the verification result has been retrieved

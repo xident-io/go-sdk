@@ -69,14 +69,15 @@ func TestVerification_Init_AllParams(t *testing.T) {
 		json.Unmarshal(body, &params)
 
 		checks := map[string]any{
-			"callback_url":        "https://example.com/cb",
-			"min_age":             float64(21),
-			"success_url":         "https://example.com/success",
-			"failed_url":          "https://example.com/failed",
-			"user_id":             "usr_456",
-			"theme":               "dark",
-			"locale":              "de",
-			"metadata":            `{"plan":"pro"}`,
+			"callback_url": "https://example.com/cb",
+			"min_age":      float64(21),
+			"success_url":  "https://example.com/success",
+			"failed_url":   "https://example.com/failed",
+			"user_id":      "usr_456",
+			"theme":        "system",
+			"locale":       "de",
+			"purpose":      "id_verification",
+			"metadata":     `{"plan":"pro"}`,
 		}
 
 		for k, want := range checks {
@@ -89,14 +90,15 @@ func TestVerification_Init_AllParams(t *testing.T) {
 	})
 
 	_, _, err := client.Verification.Init(context.Background(), &InitParams{
-		CallbackURL:        "https://example.com/cb",
-		MinAge:             21,
-		SuccessURL:         "https://example.com/success",
-		FailedURL:          "https://example.com/failed",
-		UserID:             "usr_456",
-		Theme:              "dark",
-		Locale:             "de",
-		Metadata:           `{"plan":"pro"}`,
+		CallbackURL: "https://example.com/cb",
+		MinAge:      21,
+		SuccessURL:  "https://example.com/success",
+		FailedURL:   "https://example.com/failed",
+		UserID:      "usr_456",
+		Theme:       "system",
+		Locale:      "de",
+		Purpose:     "id_verification",
+		Metadata:    `{"plan":"pro"}`,
 	})
 	if err != nil {
 		t.Fatalf("Init() error: %v", err)

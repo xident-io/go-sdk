@@ -20,12 +20,27 @@ type VerificationService service
 //
 // CallbackURL is the only required field. All other fields are optional.
 type InitParams struct {
-	// CallbackURL is where Xident sends the webhook when verification
-	// completes. Required.
+	// CallbackURL is where the verification widget redirects the browser back
+	// to once the flow finishes. Required. Must be an https URL (http is
+	// allowed only for localhost during development).
+	//
+	// The redirect is a plain browser GET with these query parameters
+	// appended:
+	//
+	//   - status:  "success", "failed", or "cancelled" (British spelling).
+	//   - token:   the RESULT token (xtk_ prefixed). Pass this token, NOT the
+	//              init token, to GetResult to fetch the outcome.
+	//   - user_id: echoed back only if you supplied UserID at init time.
+	//
+	// This is a browser redirect, not a signed webhook -- never trust these
+	// query params on their own. Always re-verify server-side with GetResult.
+	// (For the separate, optional signed-webhook feature, see WebhookService.)
 	CallbackURL string `json:"callback_url"`
 
-	// MinAge is the minimum age threshold (12, 15, 18, 21, or 25).
-	// Defaults to the rule's configured threshold if omitted.
+	// MinAge is the minimum age threshold, 1-99 (0-99 when Purpose is
+	// "id_verification"). Defaults to the rule's configured threshold if
+	// omitted. The trained age-bracket models cover 12, 15, 18, 21, and 25;
+	// other values fall back to document verification.
 	MinAge int `json:"min_age,omitempty"`
 
 	// SuccessURL is where to redirect the user after successful verification.
@@ -34,18 +49,24 @@ type InitParams struct {
 	// FailedURL is where to redirect the user after failed verification.
 	FailedURL string `json:"failed_url,omitempty"`
 
-	// UserID is your internal user identifier. Passed through to the
-	// webhook for correlation.
+	// UserID is your internal user identifier. Echoed back on the callback
+	// redirect (as the user_id query param) for correlation.
 	UserID string `json:"user_id,omitempty"`
 
-	// Theme sets the verification widget theme ("light" or "dark").
+	// Theme sets the verification widget theme: "light", "dark", or "system"
+	// (follow the user's OS preference).
 	Theme string `json:"theme,omitempty"`
 
 	// Locale sets the verification widget language (e.g., "en", "de", "fr").
 	Locale string `json:"locale,omitempty"`
 
-	// Metadata is an opaque string (up to 500 chars) passed through to the
-	// webhook. Use it for order IDs, plan names, etc.
+	// Purpose selects the verification intent: "age_verification" (default)
+	// or "id_verification". With "id_verification", MinAge may be 0-99.
+	Purpose string `json:"purpose,omitempty"`
+
+	// Metadata is an opaque string (up to 500 chars) passed through verbatim
+	// and returned unchanged on the session result. Xident does not parse,
+	// encode, or base64 it. Use it for order IDs, plan names, etc.
 	Metadata string `json:"metadata,omitempty"`
 }
 
@@ -83,16 +104,22 @@ func (s *VerificationService) Init(ctx context.Context, params *InitParams) (*In
 
 // GetResult retrieves the verification result for a token.
 //
-// Call this after the user returns from the verification widget, or after
-// receiving a webhook callback. NEVER trust URL parameters alone -- always
-// re-verify server-side.
+// The token argument is the RESULT token (xtk_ prefixed) that the widget
+// appends as the "token" query parameter when it redirects the browser back
+// to your CallbackURL. It is NOT the init token (xit_) returned by Init.
 //
-//	session, resp, err := client.Verification.GetResult(ctx, "xit_abc123")
+// Call this after the user returns from the verification widget. NEVER trust
+// URL parameters alone -- always re-verify server-side.
+//
+//	// token := r.URL.Query().Get("token") // the xtk_ result token
+//	session, resp, err := client.Verification.GetResult(ctx, "xtk_abc123")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	if session.IsVerified() {
-//	    fmt.Printf("Verified! Age bracket: %d\n", *session.AgeBracket())
+//	    if b := session.AgeBracket(); b != nil {
+//	        fmt.Printf("Verified! Age bracket: %d\n", *b)
+//	    }
 //	}
 func (s *VerificationService) GetResult(ctx context.Context, token string) (*SessionResult, *Response, error) {
 	if token == "" {

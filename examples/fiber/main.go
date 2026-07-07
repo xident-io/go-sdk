@@ -41,10 +41,9 @@ func main() {
 		defer cancel()
 
 		result, _, err := client.Verification.Init(ctx, &xident.InitParams{
-			CallbackURL: "https://example.com/webhook",
+			// The browser is redirected back to CallbackURL when the flow ends.
+			CallbackURL: "https://example.com/callback",
 			MinAge:      18,
-			SuccessURL:  "https://example.com/success",
-			FailedURL:   "https://example.com/failed",
 		})
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -52,13 +51,41 @@ func main() {
 			})
 		}
 
+		// result.Token is the init token (xit_) — redirect the browser to VerifyURL.
 		return c.JSON(fiber.Map{
 			"token":      result.Token,
 			"verify_url": result.VerifyURL,
 		})
 	})
 
-	// Webhook handler.
+	// Callback: the widget redirects the browser here with
+	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	// Re-verify server-side; never trust the query params alone.
+	app.Get("/callback", func(c *fiber.Ctx) error {
+		token := c.Query("token") // the RESULT token (xtk_...)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		session, _, err := client.Verification.GetResult(ctx, token)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		return c.JSON(fiber.Map{
+			"callback_status": c.Query("status"),
+			"verified":        session.IsVerified(),
+			"status":          session.Status,
+			"age_bracket":     session.AgeBracket(),
+			"method":          session.Method(),
+			"terminal":        session.IsTerminal(),
+		})
+	})
+
+	// Webhook handler. OPTIONAL, separate feature -- not part of the core
+	// redirect flow above. Enable only if you configured a webhook secret.
 	// Note: Fiber consumes the body, so use c.Body() directly.
 	app.Post("/webhook", func(c *fiber.Ctx) error {
 		body := c.Body()

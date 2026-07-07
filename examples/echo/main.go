@@ -40,22 +40,47 @@ func main() {
 	// Start verification session.
 	e.POST("/verify", func(c echo.Context) error {
 		result, _, err := client.Verification.Init(c.Request().Context(), &xident.InitParams{
-			CallbackURL: "https://example.com/webhook",
+			// The browser is redirected back to CallbackURL when the flow ends.
+			CallbackURL: "https://example.com/callback",
 			MinAge:      18,
-			SuccessURL:  "https://example.com/success",
-			FailedURL:   "https://example.com/failed",
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
 
+		// result.Token is the init token (xit_) — redirect the browser to VerifyURL.
 		return c.JSON(http.StatusOK, map[string]string{
 			"token":      result.Token,
 			"verify_url": result.VerifyURL,
 		})
 	})
 
-	// Webhook handler.
+	// Callback: the widget redirects the browser here with
+	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	// Re-verify server-side; never trust the query params alone.
+	e.GET("/callback", func(c echo.Context) error {
+		token := c.QueryParam("token") // the RESULT token (xtk_...)
+
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+		defer cancel()
+
+		session, _, err := client.Verification.GetResult(ctx, token)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"callback_status": c.QueryParam("status"),
+			"verified":        session.IsVerified(),
+			"status":          session.Status,
+			"age_bracket":     session.AgeBracket(),
+			"method":          session.Method(),
+			"terminal":        session.IsTerminal(),
+		})
+	})
+
+	// Webhook handler. OPTIONAL, separate feature -- not part of the core
+	// redirect flow above. Enable only if you configured a webhook secret.
 	e.POST("/webhook", func(c echo.Context) error {
 		body, err := io.ReadAll(c.Request().Body)
 		if err != nil {

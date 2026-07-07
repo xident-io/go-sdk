@@ -14,6 +14,12 @@ go get github.com/xident-io/go-sdk
 
 ## Quick Start
 
+Verification is a two-step, two-request flow. **Step 1** (`Init`) runs on the
+route that starts verification and returns a `verify_url` you redirect the
+browser to. **Step 2** (`GetResult`) runs on your `callback_url` route, which
+the widget redirects the browser back to with a `token` query param — the
+**result** token (`xtk_…`), which is different from the init token (`xit_…`).
+
 ```go
 package main
 
@@ -21,6 +27,7 @@ import (
     "context"
     "fmt"
     "log"
+    "net/http"
 
     xident "github.com/xident-io/go-sdk"
 )
@@ -28,36 +35,61 @@ import (
 func main() {
     client := xident.NewClient("sk_live_xxx")
 
-    // 1. Create a verification session (your backend)
-    result, _, err := client.Verification.Init(context.Background(), &xident.InitParams{
-        CallbackURL: "https://yoursite.com/webhook",
-        MinAge:      18,
+    // Step 1: start verification and redirect the browser to the widget.
+    http.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
+        result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
+            CallbackURL: "https://yoursite.com/callback", // browser returns here
+            MinAge:      18,
+        })
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        // result.Token is the init token (xit_) — do NOT pass it to GetResult.
+        http.Redirect(w, r, result.VerifyURL, http.StatusFound)
     })
-    if err != nil {
-        log.Fatal(err)
-    }
-    // Redirect user to result.VerifyURL
 
-    // 2. After user returns, verify server-side (NEVER trust URL params)
-    session, _, err := client.Verification.GetResult(context.Background(), result.Token)
-    if err != nil {
-        log.Fatal(err)
-    }
+    // Step 2: the widget redirects the browser back here with query params:
+    //   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+    // Re-verify server-side (NEVER trust the URL params alone).
+    http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+        token := r.URL.Query().Get("token") // the RESULT token (xtk_...)
 
-    if session.IsVerified() {
-        fmt.Printf("Verified! Age bracket: %d\n", *session.AgeBracket())
-    }
+        session, _, err := client.Verification.GetResult(r.Context(), token)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        if session.IsVerified() {
+            if b := session.AgeBracket(); b != nil {
+                fmt.Fprintf(w, "Verified! Age bracket: %d\n", *b)
+            } else {
+                fmt.Fprintln(w, "Verified!")
+            }
+        }
+    })
+
+    log.Fatal(http.ListenAndServe(":8080", nil))
 }
 ```
 
 ## How It Works
 
-1. Your backend calls `POST /verify/v1/init` with your secret key
-2. SDK returns a token + verify URL. You redirect the user there.
-3. User completes verification on `verify.xident.io` (liveness + age check)
-4. User redirected back to your `success_url` with `?token=xxx`
-5. Your backend calls `GET /verify/v1/result/{token}` to get the result
-6. You make the authorization decision based on the verified result
+1. Your backend calls `POST /verify/v1/init` with your secret key (`sk_…`).
+2. The SDK returns an **init** token (`xit_…`, one-time use, 10-minute TTL) plus
+   a `verify_url`. You redirect the browser to that URL.
+3. The user completes verification on `verify.xident.io` (liveness + age check).
+4. The widget redirects the browser back to your `callback_url` with query
+   params: `?status=success|failed|cancelled`, `token=xtk_…` (the **result**
+   token, different from the init token), and `user_id` (only if you supplied
+   one). This is a plain browser GET redirect, **not** a signed webhook.
+5. Your backend reads `token` from the query string and calls
+   `GET /verify/v1/result/{token}` (via `GetResult`) to fetch the outcome.
+6. You make the authorization decision based on the verified result.
+
+> Signed server-to-server webhooks are a **separate, optional** feature — see
+> [Webhooks (optional server-to-server)](#webhooks-optional-server-to-server)
+> below. The primary flow above needs only the browser callback redirect.
 
 ## API Reference
 
@@ -79,22 +111,35 @@ The client is safe for concurrent use across goroutines. Create one and reuse it
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `CallbackURL` | string | Yes | HTTPS URL for webhook (localhost OK for dev) |
-| `MinAge` | int | No | 12, 15, 18, 21, or 25. Default: rule's configured threshold |
+| `CallbackURL` | string | Yes | Browser GET redirect target; widget returns here with `?status`, `token` (xtk_), `user_id`. HTTPS required (http OK for localhost) |
+| `MinAge` | int | No | 1–99 (0–99 when `Purpose` is `id_verification`). Default: rule's configured threshold. Trained brackets: 12, 15, 18, 21, 25 |
 | `SuccessURL` | string | No | Redirect on success |
 | `FailedURL` | string | No | Redirect on failure |
-| `UserID` | string | No | Your internal user ID |
-| `Theme` | string | No | `light`, `dark` |
+| `UserID` | string | No | Your internal user ID; echoed back on the callback as `user_id` |
+| `Theme` | string | No | `light`, `dark`, `system` |
 | `Locale` | string | No | `en`, `de`, `es`, `fr`, `it`, `pt`, `nl`, `pl`, `tr`, `ar`, `ja` |
-| `Metadata` | string | No | Custom string (max 500 chars) |
+| `Purpose` | string | No | `age_verification` (default) or `id_verification` |
+| `Metadata` | string | No | Opaque string (max 500 chars), passed through verbatim and returned unchanged on the result (not parsed or base64-encoded) |
 
-Returns: `result.Token`, `result.VerifyURL`
+Returns: `result.Token` (the init token, `xit_…`), `result.VerifyURL`. The
+**result** token (`xtk_…`) you pass to `GetResult` comes from the callback
+redirect's `token` query param, not from `Init`.
 
 ### Verification.GetResult(ctx, token) -> (*SessionResult, *Response, error)
 
+`token` is the **result** token (`xtk_…`) read from the callback redirect's
+`token` query param — not the init token (`xit_…`) returned by `Init`.
+
 Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `AgeBracket()`, `Method()`
 
-### Webhooks.ConstructEvent(payload, signature, secret, tolerance...) -> (*WebhookEvent, error)
+### Webhooks (optional server-to-server)
+
+> The core flow (Init -> redirect -> callback -> GetResult) does **not** require
+> webhooks. This is a separate, optional feature for backends that also want a
+> signed server-to-server notification. If you use it, still call `GetResult`
+> to fetch the authoritative outcome.
+
+**`Webhooks.ConstructEvent(payload, signature, secret, tolerance...) -> (*WebhookEvent, error)`**
 
 Verify HMAC-SHA256 webhook signature and parse event. Default tolerance is 5 minutes.
 
@@ -171,9 +216,8 @@ func main() {
 
     mux.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
         result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
-            CallbackURL: "https://example.com/webhook",
+            CallbackURL: "https://example.com/callback",
             MinAge:      18,
-            SuccessURL:  "https://example.com/success",
             UserID:      "user_123",
         })
         if err != nil {
@@ -183,8 +227,18 @@ func main() {
         http.Redirect(w, r, result.VerifyURL, http.StatusFound)
     })
 
-    mux.HandleFunc("/success", func(w http.ResponseWriter, r *http.Request) {
-        token := r.URL.Query().Get("token")
+    // callback_url: the widget redirects the browser back here with
+    //   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+    mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        status := q.Get("status") // "success", "failed", or "cancelled"
+        token := q.Get("token")   // the xtk_ result token
+        if status != "success" || token == "" {
+            fmt.Fprintf(w, "Verification not completed (status=%q)\n", status)
+            return
+        }
+
+        // Re-verify server-side; never trust the query params alone.
         session, _, err := client.Verification.GetResult(r.Context(), token)
         if err != nil {
             http.Error(w, fmt.Sprintf("Failed: %v", err), 500)
@@ -199,7 +253,8 @@ func main() {
 }
 ```
 
-See `examples/` for Gin, Echo, and Fiber examples.
+See `examples/` for Gin, Echo, and Fiber examples. Each is its own Go module
+(so the SDK stays dependency-free); `cd examples/gin && go run .` to try one.
 
 ## Security
 
@@ -212,7 +267,7 @@ See `examples/` for Gin, Echo, and Fiber examples.
 ## Testing
 
 ```bash
-go test ./...              # 107 tests
+go test ./...              # run the test suite
 go test -race ./...        # With race detector
 go test -cover ./...       # With coverage report
 ```
