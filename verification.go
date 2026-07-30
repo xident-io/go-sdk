@@ -66,6 +66,13 @@ type InitParams struct {
 	// Purpose selects the verification intent: "age_verification" (default)
 	// or "id_verification". With "id_verification", MinAge may be 0-99.
 	Purpose string `json:"purpose,omitempty"`
+	// VerificationMode overrides the rule engine's choice of methods for this
+	// session: "auto" (default), "document" to force document + face match, or
+	// "facial" to force on-device age estimation.
+	//
+	// It composes with MinAge rather than replacing it — "document" with
+	// MinAge 21 still enforces 21, it just insists the proof be a document.
+	VerificationMode string `json:"verification_mode,omitempty"`
 
 	// Metadata is an opaque string (up to 500 chars) passed through verbatim
 	// and returned unchanged on the session result. Xident does not parse,
