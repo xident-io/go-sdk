@@ -28,7 +28,11 @@ type WebhookService service
 
 // WebhookEvent represents a parsed webhook event from Xident.
 type WebhookEvent struct {
-	// Type is the event type (e.g., "session.completed", "session.failed").
+	// Type is the event type (e.g., "session.success", "session.failed").
+	//
+	// The pass event was renamed from "session.completed" to "session.success"
+	// in July 2026. An endpoint registered before then still receives the old
+	// name, so handle both if your endpoint predates the rename.
 	Type string `json:"type"`
 
 	// Data contains the event payload. The structure depends on the event type.
@@ -63,7 +67,7 @@ const DefaultWebhookTolerance = 5 * time.Minute
 //	    return
 //	}
 //	switch event.Type {
-//	case "session.completed":
+//	case "session.success":
 //	    // Grant access
 //	case "session.failed":
 //	    // Handle failure

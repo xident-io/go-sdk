@@ -24,7 +24,7 @@ func makeTestSignature(payload, secret string, timestamp int64) string {
 func TestWebhooks_VerifySignature_Valid(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed","data":{"session_id":"abc"}}`
+	payload := `{"type":"session.success","data":{"session_id":"abc"}}`
 	ts := time.Now().Unix()
 	sig := makeTestSignature(payload, testWebhookSecret, ts)
 
@@ -40,7 +40,7 @@ func TestWebhooks_VerifySignature_Valid(t *testing.T) {
 func TestWebhooks_VerifySignature_InvalidHMAC(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed"}`
+	payload := `{"type":"session.success"}`
 	sig := fmt.Sprintf("t=%d,v1=invalid_hmac_hex", time.Now().Unix())
 
 	_, err := client.Webhooks.VerifySignature([]byte(payload), sig, testWebhookSecret)
@@ -55,7 +55,7 @@ func TestWebhooks_VerifySignature_InvalidHMAC(t *testing.T) {
 func TestWebhooks_VerifySignature_ExpiredTimestamp(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed"}`
+	payload := `{"type":"session.success"}`
 	oldTS := time.Now().Add(-10 * time.Minute).Unix()
 	sig := makeTestSignature(payload, testWebhookSecret, oldTS)
 
@@ -71,7 +71,7 @@ func TestWebhooks_VerifySignature_ExpiredTimestamp(t *testing.T) {
 func TestWebhooks_VerifySignature_ZeroToleranceDisablesReplay(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed"}`
+	payload := `{"type":"session.success"}`
 	oldTS := time.Now().Add(-24 * time.Hour).Unix() // 24 hours ago
 	sig := makeTestSignature(payload, testWebhookSecret, oldTS)
 
@@ -142,7 +142,7 @@ func TestWebhooks_ConstructEvent(t *testing.T) {
 	client := NewClient("sk_test_key")
 
 	payload := `{
-		"type": "session.completed",
+		"type": "session.success",
 		"data": {"session_id": "sess_abc", "status": "success"},
 		"id": "evt_001",
 		"created": 1710345600
@@ -155,8 +155,8 @@ func TestWebhooks_ConstructEvent(t *testing.T) {
 		t.Fatalf("ConstructEvent() error: %v", err)
 	}
 
-	if event.Type != "session.completed" {
-		t.Errorf("Type = %q, want %q", event.Type, "session.completed")
+	if event.Type != "session.success" {
+		t.Errorf("Type = %q, want %q", event.Type, "session.success")
 	}
 	if event.Data["session_id"] != "sess_abc" {
 		t.Errorf("Data[session_id] = %v, want %q", event.Data["session_id"], "sess_abc")
@@ -172,7 +172,7 @@ func TestWebhooks_ConstructEvent(t *testing.T) {
 func TestWebhooks_ConstructEvent_InvalidSignature(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed"}`
+	payload := `{"type":"session.success"}`
 	sig := fmt.Sprintf("t=%d,v1=bad", time.Now().Unix())
 
 	_, err := client.Webhooks.ConstructEvent([]byte(payload), sig, testWebhookSecret)
@@ -216,7 +216,7 @@ func TestWebhooks_ConstructEvent_EventTypeField(t *testing.T) {
 func TestWebhooks_ConstructEvent_CustomTolerance(t *testing.T) {
 	client := NewClient("sk_test_key")
 
-	payload := `{"type":"session.completed","data":{}}`
+	payload := `{"type":"session.success","data":{}}`
 	ts := time.Now().Add(-3 * time.Minute).Unix()
 	sig := makeTestSignature(payload, testWebhookSecret, ts)
 

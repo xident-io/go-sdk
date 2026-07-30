@@ -116,7 +116,9 @@ func main() {
 			}
 
 			switch event.Type {
-			case "session.completed":
+			// "session.completed" is the pre-July-2026 name; an endpoint
+			// registered before then still receives it.
+			case "session.success", "session.completed":
 				log.Printf("Verification completed: %v", event.Data)
 			case "session.failed":
 				log.Printf("Verification failed: %v", event.Data)
