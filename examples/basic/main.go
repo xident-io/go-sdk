@@ -7,7 +7,7 @@
 //  3. POST /webhook       - OPTIONAL signed server-to-server notification
 //
 // The callback_url is a plain browser GET redirect, NOT a signed webhook. The
-// widget appends ?status=success|failed|cancelled, token=xtk_... (the RESULT
+// widget appends ?status=success|failed|canceled, token=xtk_... (the RESULT
 // token, distinct from the xit_ init token), and user_id (if you supplied one).
 //
 // Run with:
@@ -61,11 +61,11 @@ func main() {
 	})
 
 	// Callback: the widget redirects the browser here after verification with
-	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	//   ?status=success|failed|canceled&token=xtk_...&user_id=...
 	// ALWAYS re-verify server-side -- never trust the query params alone.
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		status := q.Get("status") // "success", "failed", or "cancelled"
+		status := q.Get("status") // "success", "failed", or "canceled"
 		token := q.Get("token")   // the RESULT token (xtk_...)
 		userID := q.Get("user_id")
 
@@ -85,7 +85,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"callback_status": status, // British "cancelled" on the callback
+			"callback_status": status, // same vocabulary as the result endpoint
 			"user_id":         userID,
 			"verified":        session.IsVerified(),
 			"status":          session.Status, // American "canceled" from /result

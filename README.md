@@ -50,7 +50,7 @@ func main() {
     })
 
     // Step 2: the widget redirects the browser back here with query params:
-    //   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+    //   ?status=success|failed|canceled&token=xtk_...&user_id=...
     // Re-verify server-side (NEVER trust the URL params alone).
     http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
         token := r.URL.Query().Get("token") // the RESULT token (xtk_...)
@@ -80,7 +80,7 @@ func main() {
    a `verify_url`. You redirect the browser to that URL.
 3. The user completes verification on `verify.xident.io` (liveness + age check).
 4. The widget redirects the browser back to your `callback_url` with query
-   params: `?status=success|failed|cancelled`, `token=xtk_…` (the **result**
+   params: `?status=success|failed|canceled`, `token=xtk_…` (the **result**
    token, different from the init token), and `user_id` (only if you supplied
    one). This is a plain browser GET redirect, **not** a signed webhook.
 5. Your backend reads `token` from the query string and calls
@@ -189,7 +189,7 @@ All error types embed `ErrorResponse` which provides `Code`, `Message`, and `Req
 ```go
 session, _, _ := client.Verification.GetResult(ctx, token)
 
-session.IsVerified()  // true if status == "completed"
+session.IsVerified()  // true if status == "success" (the user PASSED)
 session.IsFailed()    // true if status == "failed"
 session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
@@ -228,10 +228,10 @@ func main() {
     })
 
     // callback_url: the widget redirects the browser back here with
-    //   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+    //   ?status=success|failed|canceled&token=xtk_...&user_id=...
     mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
-        status := q.Get("status") // "success", "failed", or "cancelled"
+        status := q.Get("status") // "success", "failed", or "canceled"
         token := q.Get("token")   // the xtk_ result token
         if status != "success" || token == "" {
             fmt.Fprintf(w, "Verification not completed (status=%q)\n", status)

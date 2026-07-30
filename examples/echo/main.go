@@ -56,7 +56,7 @@ func main() {
 	})
 
 	// Callback: the widget redirects the browser here with
-	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	//   ?status=success|failed|canceled&token=xtk_...&user_id=...
 	// Re-verify server-side; never trust the query params alone.
 	e.GET("/callback", func(c echo.Context) error {
 		token := c.QueryParam("token") // the RESULT token (xtk_...)

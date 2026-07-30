@@ -10,7 +10,7 @@ func TestSessionResult_IsVerified(t *testing.T) {
 		status SessionStatus
 		want   bool
 	}{
-		{SessionStatusCompleted, true},
+		{SessionStatusSuccess, true},
 		{SessionStatusFailed, false},
 		{SessionStatusPending, false},
 		{SessionStatusInProgress, false},
@@ -34,7 +34,7 @@ func TestSessionResult_IsFailed(t *testing.T) {
 		want   bool
 	}{
 		{SessionStatusFailed, true},
-		{SessionStatusCompleted, false},
+		{SessionStatusSuccess, false},
 		{SessionStatusPending, false},
 	}
 
@@ -55,7 +55,7 @@ func TestSessionResult_IsPending(t *testing.T) {
 	}{
 		{SessionStatusPending, true},
 		{SessionStatusInProgress, true},
-		{SessionStatusCompleted, false},
+		{SessionStatusSuccess, false},
 		{SessionStatusFailed, false},
 		{SessionStatusCanceled, false},
 		{SessionStatusClaimed, false},
@@ -76,7 +76,7 @@ func TestSessionResult_IsTerminal(t *testing.T) {
 		status SessionStatus
 		want   bool
 	}{
-		{SessionStatusCompleted, true},
+		{SessionStatusSuccess, true},
 		{SessionStatusFailed, true},
 		{SessionStatusCanceled, true},
 		{SessionStatusClaimed, true},
@@ -195,7 +195,7 @@ func TestSessionResult_JSONRoundtrip(t *testing.T) {
 	// Verify that a session result can be marshaled and unmarshaled.
 	original := &SessionResult{
 		ID:          "sess_test",
-		Status:      SessionStatusCompleted,
+		Status:      SessionStatusSuccess,
 		AgeResult:   json.RawMessage(`{"verified_bracket":18,"method":"ml_fast"}`),
 		CountryCode: strPtr("US"),
 		MinAge:      intPtr(18),

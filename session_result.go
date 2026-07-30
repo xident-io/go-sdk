@@ -11,8 +11,17 @@ type SessionResult struct {
 	// ID is the unique session identifier.
 	ID string `json:"id"`
 
-	// Status is the current lifecycle state of the session.
+	// Status is the current state of the session. For a terminal session it
+	// is the VERDICT -- SessionStatusSuccess only when the user passed.
 	Status SessionStatus `json:"status"`
+
+	// Reason explains a non-success terminal status. Empty when Status is
+	// SessionStatusSuccess.
+	//
+	// Known values: "age_below_threshold", "dob_unreadable", "face_mismatch",
+	// "face_not_detected", "docverify_reject", "blacklist_match". Treat the
+	// set as open -- new reasons may be added, so switch with a default.
+	Reason string `json:"reason,omitempty"`
 
 	// LivenessResult contains the liveness check outcome, if performed.
 	LivenessResult json.RawMessage `json:"liveness_result,omitempty"`
@@ -69,10 +78,13 @@ type SessionResult struct {
 	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 
-// IsVerified returns true if the session completed successfully, meaning
-// the user passed age verification.
+// IsVerified returns true if the user PASSED verification.
+//
+// This is the check to gate on. It is false for a session that ran all the
+// way through the flow but did not meet the age threshold -- that session is
+// SessionStatusFailed with Reason "age_below_threshold".
 func (s *SessionResult) IsVerified() bool {
-	return s.Status == SessionStatusCompleted
+	return s.Status == SessionStatusSuccess
 }
 
 // IsFailed returns true if the session failed verification.

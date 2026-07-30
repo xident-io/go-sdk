@@ -210,7 +210,7 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 			"success": true,
 			"data": {
 				"id": "sess_abc",
-				"status": "completed",
+				"status": "success",
 				"age_result": {"verified_bracket": 18, "method": "ml_fast", "confidence": 0.95},
 				"liveness_result": {"passed": true},
 				"country_code": "US",

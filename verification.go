@@ -27,7 +27,10 @@ type InitParams struct {
 	// The redirect is a plain browser GET with these query parameters
 	// appended:
 	//
-	//   - status:  "success", "failed", or "cancelled" (British spelling).
+	//   - status:  "success", "failed", or "canceled" -- the same three words
+	//              the result endpoint uses. "success" means the user PASSED;
+	//              a session that ran to the end but missed the age threshold
+	//              arrives as "failed".
 	//   - token:   the RESULT token (xtk_ prefixed). Pass this token, NOT the
 	//              init token, to GetResult to fetch the outcome.
 	//   - user_id: echoed back only if you supplied UserID at init time.

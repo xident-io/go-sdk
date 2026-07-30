@@ -57,7 +57,7 @@ func main() {
 	})
 
 	// Callback: the widget redirects the browser here with
-	//   ?status=success|failed|cancelled&token=xtk_...&user_id=...
+	//   ?status=success|failed|canceled&token=xtk_...&user_id=...
 	// Re-verify server-side; never trust the query params alone.
 	r.GET("/callback", func(c *gin.Context) {
 		token := c.Query("token") // the RESULT token (xtk_...)

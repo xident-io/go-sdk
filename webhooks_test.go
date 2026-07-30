@@ -143,7 +143,7 @@ func TestWebhooks_ConstructEvent(t *testing.T) {
 
 	payload := `{
 		"type": "session.completed",
-		"data": {"session_id": "sess_abc", "status": "completed"},
+		"data": {"session_id": "sess_abc", "status": "success"},
 		"id": "evt_001",
 		"created": 1710345600
 	}`
