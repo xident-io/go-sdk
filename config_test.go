@@ -73,3 +73,70 @@ func TestOptionChaining(t *testing.T) {
 		t.Errorf("userAgent = %q", c.userAgent)
 	}
 }
+
+// TestWithTimeoutNeverMutatesTheCallersClient pins the fix for a real defect:
+// WithTimeout used to assign straight to c.httpClient.Timeout, so
+// `WithHTTPClient(mine), WithTimeout(d)` reached into a client the CALLER owned
+// and rewrote a field on it. Anyone sharing that *http.Client with the rest of
+// their program had its timeout silently changed by constructing an SDK client.
+//
+// Both orders are asserted because the bug only fired in one of them, which is
+// also why the old doc comment ("this option will be ignored") read as true to
+// whoever wrote it.
+func TestWithTimeoutNeverMutatesTheCallersClient(t *testing.T) {
+	const callerTimeout = 42 * time.Second
+
+	for _, tc := range []struct {
+		name string
+		opts func(hc *http.Client) []Option
+	}{
+		{
+			name: "WithHTTPClient then WithTimeout",
+			opts: func(hc *http.Client) []Option {
+				return []Option{WithHTTPClient(hc), WithTimeout(3 * time.Second)}
+			},
+		},
+		{
+			name: "WithTimeout then WithHTTPClient",
+			opts: func(hc *http.Client) []Option {
+				return []Option{WithTimeout(3 * time.Second), WithHTTPClient(hc)}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mine := &http.Client{Timeout: callerTimeout}
+			_ = NewClient("sk_test_abcdefghijklmnopqrstuvwxyz", tc.opts(mine)...)
+
+			if mine.Timeout != callerTimeout {
+				t.Fatalf("the SDK modified a client it does not own: caller's Timeout is %v, want %v",
+					mine.Timeout, callerTimeout)
+			}
+		})
+	}
+}
+
+// TestWithTimeoutAppliesToWhicheverClientIsInEffect documents the ordering the
+// corrected doc comment now describes: options apply in call order, so the
+// timeout lands on whatever client is set at the moment it runs.
+func TestWithTimeoutAppliesToWhicheverClientIsInEffect(t *testing.T) {
+	mine := &http.Client{Timeout: 42 * time.Second}
+
+	// WithHTTPClient first: the timeout applies to (a copy of) the custom client.
+	c := NewClient("sk_test_abcdefghijklmnopqrstuvwxyz",
+		WithHTTPClient(mine), WithTimeout(3*time.Second))
+	if got := c.httpClient.Timeout; got != 3*time.Second {
+		t.Fatalf("timeout did not apply to the custom client: got %v, want 3s", got)
+	}
+	if c.httpClient == mine {
+		t.Fatal("the SDK is using the caller's client directly; it must use a copy")
+	}
+
+	// WithHTTPClient last: it replaces the client the timeout was applied to,
+	// so the caller's own timeout wins. This is the case the old doc comment
+	// described, and it remains true.
+	c = NewClient("sk_test_abcdefghijklmnopqrstuvwxyz",
+		WithTimeout(3*time.Second), WithHTTPClient(mine))
+	if got := c.httpClient.Timeout; got != 42*time.Second {
+		t.Fatalf("expected the custom client's own timeout to win: got %v, want 42s", got)
+	}
+}

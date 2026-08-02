@@ -16,7 +16,7 @@ const (
 	DefaultMaxRetries = 3
 
 	// SDKVersion is the current SDK version string.
-	SDKVersion = "1.3.0"
+	SDKVersion = "1.3.1"
 
 	// apiVersion is the API version path prefix.
 	apiVersion = "verify/v1"
@@ -43,12 +43,34 @@ func WithHTTPClient(hc *http.Client) Option {
 	}
 }
 
-// WithTimeout sets the HTTP request timeout. This replaces the Timeout on the
-// default http.Client. If you use WithHTTPClient, set the timeout on that client
-// instead -- this option will be ignored.
+// WithTimeout sets the HTTP request timeout.
+//
+// It applies to whichever *http.Client is in effect when it runs, so ORDER
+// MATTERS when combined with WithHTTPClient: options are applied in the order
+// they are passed to NewClient.
+//
+//	// timeout applies to the custom client
+//	xident.NewClient(key, xident.WithHTTPClient(hc), xident.WithTimeout(3*time.Second))
+//
+//	// timeout applies to the default client, then is discarded with it
+//	xident.NewClient(key, xident.WithTimeout(3*time.Second), xident.WithHTTPClient(hc))
+//
+// Your *http.Client is never modified. The doc comment here previously claimed
+// this option was "ignored" when WithHTTPClient was used, which was wrong in
+// one of the two orders — and worse, the implementation assigned straight to
+// c.httpClient.Timeout, so `WithHTTPClient(mine), WithTimeout(d)` reached into
+// a client the CALLER owned and rewrote a field on it. A client shared with
+// the rest of the caller's program would have had its timeout silently changed
+// by constructing an SDK client. It now copies first.
+//
+// The copy is shallow, which is deliberate: Transport, Jar and CheckRedirect
+// are shared with the original, so connection pooling and TLS configuration
+// are preserved and only Timeout diverges.
 func WithTimeout(d time.Duration) Option {
 	return func(c *Client) {
-		c.httpClient.Timeout = d
+		hc := *c.httpClient
+		hc.Timeout = d
+		c.httpClient = &hc
 	}
 }
 
