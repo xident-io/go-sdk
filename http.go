@@ -31,7 +31,8 @@ type apiEnvelopeErr struct {
 }
 
 type apiEnvelopeMeta struct {
-	RequestID string `json:"request_id"`
+	RequestID  string      `json:"request_id"`
+	Pagination *Pagination `json:"pagination,omitempty"`
 }
 
 // newRequest creates an *http.Request with the proper headers set.
@@ -166,9 +167,10 @@ func (c *Client) do(ctx context.Context, req *http.Request, v any) (*Response, e
 		return response, fmt.Errorf("xident: failed to parse response: %w", err)
 	}
 
-	// Extract request ID.
+	// Extract request ID and pagination metadata.
 	if envelope.Meta != nil {
 		response.RequestID = envelope.Meta.RequestID
+		response.Pagination = envelope.Meta.Pagination
 	}
 
 	// Handle API errors.
