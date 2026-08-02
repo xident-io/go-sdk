@@ -57,6 +57,12 @@ type Client struct {
 
 	// Webhooks provides methods to verify webhook signatures and parse events.
 	Webhooks *WebhookService
+
+	// Face2FA provides methods to enroll and verify faces as a second factor.
+	Face2FA *Face2FAService
+
+	// Blacklist provides methods to manage the tenant's face blacklist.
+	Blacklist *BlacklistService
 }
 
 // service is the base struct shared by all resource services. It holds a
@@ -101,6 +107,8 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	c.common.client = c
 	c.Verification = (*VerificationService)(&c.common)
 	c.Webhooks = (*WebhookService)(&c.common)
+	c.Face2FA = (*Face2FAService)(&c.common)
+	c.Blacklist = (*BlacklistService)(&c.common)
 
 	return c
 }
@@ -118,6 +126,26 @@ type Response struct {
 	// RequestID is the unique identifier for this API request, returned in
 	// the response body's meta.request_id field. Include it in support tickets.
 	RequestID string
+
+	// Pagination holds list pagination metadata from the response body's
+	// meta.pagination field. Nil for non-list endpoints.
+	Pagination *Pagination
+}
+
+// Pagination is the pagination metadata returned by list endpoints in the
+// API envelope's meta.pagination field.
+type Pagination struct {
+	// Page is the 1-based page number of this response.
+	Page int `json:"page"`
+
+	// PerPage is the number of items per page.
+	PerPage int `json:"per_page"`
+
+	// Total is the total number of items across all pages.
+	Total int64 `json:"total"`
+
+	// TotalPages is the total number of pages.
+	TotalPages int `json:"total_pages"`
 }
 
 // newResponse creates a Response from an http.Response.

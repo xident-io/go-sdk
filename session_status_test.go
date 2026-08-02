@@ -182,11 +182,16 @@ func TestNoStaleStatusLiteralsInSource(t *testing.T) {
 			t.Fatalf("parse %s: %v", name, err)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			// The one legitimate occurrence: the constant naming the
-			// pre-rename wire value so UnmarshalJSON can normalise it.
+			// Two legitimate occurrences:
+			//   - legacyStatusSuccess: the constant naming the pre-rename
+			//     SESSION wire value so UnmarshalJSON can normalise it.
+			//   - Face2FAStatusCompleted: face 2FA challenges are a different
+			//     resource with a different vocabulary, and "completed" is
+			//     their CURRENT wire value -- the July 2026 rename applied to
+			//     session verdicts only.
 			if spec, ok := n.(*ast.ValueSpec); ok {
 				for _, id := range spec.Names {
-					if id.Name == "legacyStatusSuccess" {
+					if id.Name == "legacyStatusSuccess" || id.Name == "Face2FAStatusCompleted" {
 						return false
 					}
 				}
@@ -195,7 +200,7 @@ func TestNoStaleStatusLiteralsInSource(t *testing.T) {
 			if !ok || lit.Kind != token.STRING || lit.Value != `"completed"` {
 				return true
 			}
-			t.Errorf(`%s:%d hardcodes the literal "completed"; the pass verdict is "success" (use legacyStatusSuccess if you mean the legacy wire value)`,
+			t.Errorf(`%s:%d hardcodes the literal "completed"; the session pass verdict is "success" (use legacyStatusSuccess for the legacy wire value, or Face2FAStatusCompleted for the 2FA challenge status)`,
 				name, fset.Position(lit.Pos()).Line)
 			return true
 		})

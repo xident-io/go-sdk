@@ -152,6 +152,88 @@ if err != nil {
 // event.Type, event.Data
 ```
 
+### Face 2FA
+
+Enroll a face for one of your users, then verify later logins against it.
+Register and Verify are **asynchronous**: they return a challenge you poll
+with `GetStatus` until `Status.IsTerminal()`. The API returns pass/fail only —
+never confidence scores or biometric data.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `Face2FA.Register(ctx, params)` | `POST /2fa/register` | Store (or replace) the user's face enrollment. Free of charge |
+| `Face2FA.Verify(ctx, params)` | `POST /2fa/verify` | 1:1 compare a face against the enrolled one |
+| `Face2FA.GetStatus(ctx, challengeID)` | `GET /2fa/status/{id}` | Poll a challenge for the pass/fail outcome |
+| `Face2FA.GetUser(ctx, userID)` | `GET /2fa/users/{user_id}` | Check whether a user has a face enrolled |
+| `Face2FA.DeleteUser(ctx, userID)` | `DELETE /2fa/users/{user_id}` | Hard-delete the enrollment (GDPR, idempotent) |
+
+`Face2FAParams` takes `UserID` (your opaque user id, max 255 chars) and
+`Image` (base64, max ~10MB).
+
+```go
+challenge, _, err := client.Face2FA.Verify(ctx, &xident.Face2FAParams{
+    UserID: "usr_123",
+    Image:  base64Selfie,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+status, _, err := client.Face2FA.GetStatus(ctx, challenge.ChallengeID)
+if err != nil {
+    log.Fatal(err)
+}
+if status.Status.IsTerminal() {
+    if status.Passed != nil && *status.Passed {
+        // Second factor passed
+    } else if status.FailureReason != nil {
+        // e.g. xident.Face2FAFailFaceMismatch, xident.Face2FAFailNotEnrolled
+    }
+}
+```
+
+Challenge statuses: `processing`, `completed`, `failed`, `expired`
+(`Face2FAStatusProcessing` … — `IsTerminal()` covers the last three).
+Failure reasons: `invalid_image`, `no_face_detected`, `not_enrolled`,
+`face_mismatch`, `blacklist_match`, `expired`, `internal_error`
+(`Face2FAFailInvalidImage` … — treat the set as open).
+
+### Blacklist
+
+Manage your face blacklist. Entries are added by **session** or **image** —
+never by raw embedding. The embedding is derived server-side asynchronously,
+so a new entry appears in `List` once processing finishes; embeddings are
+never returned.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `Blacklist.List(ctx, opts)` | `GET /blacklist` | Page through active entries (`Page`, `PerPage` max 100; nil opts = server defaults) |
+| `Blacklist.AddBySession(ctx, params)` | `POST /blacklist/session` | Blacklist the person from one of your terminal sessions (24h selfie retention window) |
+| `Blacklist.AddByImage(ctx, params)` | `POST /blacklist/image` | Blacklist the face in a base64 image |
+| `Blacklist.Remove(ctx, id)` | `DELETE /blacklist/{id}` | Deactivate an entry (un-ban) |
+
+```go
+_, _, err := client.Blacklist.AddBySession(ctx, &xident.BlacklistAddSessionParams{
+    SessionToken: "xst_...",       // a terminal session of yours
+    Reason:       "fraud attempt", // max 500 chars
+})
+
+entries, resp, err := client.Blacklist.List(ctx, &xident.BlacklistListOptions{
+    Page:    1,
+    PerPage: 50,
+})
+if err != nil {
+    log.Fatal(err)
+}
+if resp.Pagination != nil {
+    fmt.Printf("%d of %d entries\n", len(entries), resp.Pagination.Total)
+}
+```
+
+`AddBySession` on a still-running session returns HTTP 409 (as a
+`*ValidationError`). List pagination metadata (`Page`, `PerPage`, `Total`,
+`TotalPages`) is exposed on `resp.Pagination`.
+
 ## Error Handling
 
 ```go
