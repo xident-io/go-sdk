@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  version-guard:
+    name: Version guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      # This is the only moment where the tag and the source tree are both
+      # known, which is why the SDKVersion/tag comparison has to happen here.
+      #
+      # github.ref_name is handed to us by GitHub, so it needs no git history:
+      # the default shallow, tagless checkout above is enough. A test that
+      # instead ran `git describe` would fail here and pass on a laptop.
+      #
+      # The comparison itself lives in TestSDKVersionMatchesReleaseTag rather
+      # than in this file, so the rule is Go code under review, not shell.
+      - name: SDKVersion must match the tag
+        env:
+          XIDENT_RELEASE_VERSION: ${{ github.ref_name }}
+        run: go test ./... -run TestSDKVersionMatchesReleaseTag -v
+
+      - name: Full test suite
+        run: go test ./...
