@@ -16,7 +16,7 @@ const (
 	DefaultMaxRetries = 3
 
 	// SDKVersion is the current SDK version string.
-	SDKVersion = "1.0.0"
+	SDKVersion = "1.3.0"
 
 	// apiVersion is the API version path prefix.
 	apiVersion = "verify/v1"
