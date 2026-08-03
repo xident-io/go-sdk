@@ -67,9 +67,15 @@ type BlacklistRemoveResult struct {
 // BlacklistAddSessionParams contains the parameters for AddBySession. Both
 // fields are required.
 type BlacklistAddSessionParams struct {
-	// SessionToken is the token of one of YOUR terminal verification
-	// sessions that captured a selfie. Works within the 24h document
-	// retention window.
+	// SessionToken is the token of one of YOUR terminal DOCUMENT
+	// verification sessions. Works for 12 months after the session: the
+	// face embedding is retained for that period and then permanently
+	// deleted.
+	//
+	// A browser-only (Path A) session never captured a face and is
+	// rejected with SESSION_HAS_NO_FACE_DATA — retrying never helps. One
+	// past its retention window is rejected with
+	// SESSION_FACE_DATA_EXPIRED.
 	SessionToken string `json:"session_token"`
 
 	// Reason is why the person is being blacklisted (max 500 chars).
