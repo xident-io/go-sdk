@@ -272,9 +272,9 @@ func TestRetryDelay(t *testing.T) {
 		minMS   int64
 		maxMS   int64
 	}{
-		{1, 1000, 1250},  // 1s + up to 25% jitter
-		{2, 2000, 2500},  // 2s + up to 25% jitter
-		{3, 4000, 5000},  // 4s + up to 25% jitter
+		{1, 1000, 1250}, // 1s + up to 25% jitter
+		{2, 2000, 2500}, // 2s + up to 25% jitter
+		{3, 4000, 5000}, // 4s + up to 25% jitter
 	}
 
 	for _, tt := range tests {
