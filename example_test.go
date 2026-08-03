@@ -18,7 +18,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,8 +40,14 @@ func Example() {
 				"meta":{"request_id":"req_01"}}`)
 		case "/verify/v1/result/xtk_7c31":
 			fmt.Fprint(w, `{"success":true,
-				"data":{"id":"ses_42","status":"success","min_age":18,
-					"age_result":{"verified_bracket":18,"method":"ml_fast"},
+				"data":{"token":"xtk_7c31","status":"success","verified":true,
+					"verification_mode":"full",
+					"checks":{
+						"liveness":{"performed":true,"passed":true},
+						"age":{"performed":true,"passed":true,"gate":18},
+						"document":{"performed":false,"passed":false},
+						"face_match":{"performed":false,"passed":false}
+					},
 					"created_at":"2026-08-02T10:00:00Z"},
 				"meta":{"request_id":"req_02"}}`)
 		}
@@ -81,7 +86,7 @@ func Example() {
 
 	// Output:
 	// redirect the user to: https://verify.xident.io/s/xit_9f2a
-	// access granted, verified via ml_fast
+	// access granted, verified via full
 }
 
 // Example_callbackHandler is the http.Handler that receives the browser
@@ -95,8 +100,15 @@ func Example_callbackHandler() {
 	// your own code.
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":true,
-			"data":{"id":"ses_9931","status":"failed","reason":"age_below_threshold",
-				"min_age":18,"created_at":"2026-08-02T10:00:00Z"},
+			"data":{"token":"xtk_7c31","status":"failed","verified":false,
+				"reason":"age_below_threshold",
+				"checks":{
+					"liveness":{"performed":true,"passed":true},
+					"age":{"performed":true,"passed":false,"gate":18},
+					"document":{"performed":false,"passed":false},
+					"face_match":{"performed":false,"passed":false}
+				},
+				"created_at":"2026-08-02T10:00:00Z"},
 			"meta":{"request_id":"req_03"}}`)
 	}))
 	defer api.Close()
@@ -345,9 +357,14 @@ func ExampleVerificationService_GetResult() {
 	// your own code.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":true,
-			"data":{"id":"ses_9931","status":"failed","reason":"age_below_threshold",
-				"min_age":18,"country_code":"DE",
-				"age_result":{"verified_bracket":15,"method":"ml_fast"},
+			"data":{"token":"xtk_7c31","status":"failed","verified":false,
+				"reason":"age_below_threshold","verification_mode":"full",
+				"checks":{
+					"liveness":{"performed":true,"passed":true},
+					"age":{"performed":true,"passed":false,"gate":18},
+					"document":{"performed":false,"passed":false},
+					"face_match":{"performed":false,"passed":false}
+				},
 				"created_at":"2026-08-02T10:00:00Z",
 				"completed_at":"2026-08-02T10:00:41Z"},
 			"meta":{"request_id":"req_c40d"}}`)
@@ -392,8 +409,11 @@ func ExampleSessionResult_AgeBracket() {
 	// In your own code this value comes from Verification.GetResult; it is
 	// built by hand here so the example needs no server.
 	session := &xident.SessionResult{
-		Status:    xident.SessionStatusSuccess,
-		AgeResult: json.RawMessage(`{"verified_bracket":18,"method":"ml_fast"}`),
+		Status:           xident.SessionStatusSuccess,
+		VerificationMode: "full",
+		Checks: xident.Checks{
+			Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 18},
+		},
 	}
 
 	// The bracket is the threshold the user was proven to be ABOVE (12, 15,
@@ -407,7 +427,7 @@ func ExampleSessionResult_AgeBracket() {
 	fmt.Println("bracket while pending:", pending.AgeBracket())
 
 	// Output:
-	// proven over 18, via ml_fast
+	// proven over 18, via full
 	// bracket while pending: <nil>
 }
 

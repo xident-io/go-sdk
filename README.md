@@ -2,6 +2,45 @@
 
 Server-side Go SDK for [Xident](https://xident.io) age and identity verification. Zero external dependencies beyond the standard library. Works with any Go HTTP framework (net/http, Gin, Echo, Fiber, Chi).
 
+## v2 breaking changes
+
+**2.0.0 migrates `SessionResult` to Xident's frozen v1 result contract.** If
+you're upgrading from 1.x, read this before anything else:
+
+- **`SessionResult.ID` is gone; use `.Token`.** The old field was bound to
+  `json:"id"`, but the wire has always sent `token` -- this was a real bug (the
+  field silently came back empty against the live API). `Token` is the correct
+  binding.
+- **The blob fields are gone**: `LivenessResult`, `AgeResult`, `OCRResult`,
+  `FaceMatchResult` (all `json.RawMessage`), plus `OCRTaskID`, `CountryCode`,
+  `Regime`, `MinAge`, `Purpose`, `RequiredMethods`, `RemainingAttempts`,
+  `StartedAt`. In their place: a typed **`Checks`** struct with one field per
+  check (`Liveness`, `Age`, `Document`, `FaceMatch`), each carrying `Performed`
+  and `Passed`; `Age` additionally carries `Gate` (the threshold tested), and
+  `Document` carries `DocumentType` and `Country`.
+- **`AgeBracket()` now reads `Checks.Age`** instead of parsing an `age_result`
+  JSON blob by hand: it returns `&Checks.Age.Gate` when `Checks.Age.Passed` is
+  true, `nil` otherwise. Same signature (`*int`), new source.
+- **`Method()` now returns `VerificationMode`** (`"full"` or `"token"` -- the
+  server's own record of what actually ran: document + biometric checks, or a
+  returning Xident-ID user's cheap token reuse). It is **not** the client-side
+  ML method name (`"ml_fast"`, `"ocr"`) that 1.x returned -- that concept isn't
+  part of the v1 contract. If your code branches on `Method()`'s value,
+  re-check those branches.
+- **`CompletedAt` / `ExpiresAt` are now plain `string`**, not `*string`. An
+  absent value is `""`, not `nil`.
+- **New fields**: `Verified bool` (mirrors the `Status` verdict as a plain
+  bool -- `IsVerified()` still reads `Status`, not this field) and
+  `VerificationMode` / `ExternalUserID` are unchanged in name and meaning.
+
+`IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()` are unchanged.
+`InitResult`, `InitParams`, webhooks, Face 2FA, and Blacklist are unaffected.
+
+This is the tenant/secret-key result shape returned by `GetResult` and (once
+you use webhooks) the webhook payload's `data` field. Per Xident's contract
+promise, it is now **frozen and additive-only** going forward -- fields will
+never again be renamed or removed underneath you.
+
 ## Requirements
 
 - Go 1.21+
@@ -276,8 +315,14 @@ session.IsFailed()    // true if status == "failed"
 session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
 
-session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 (nil if not yet determined)
-session.Method()      // string: "ml_fast", "ocr", "self_declaration", etc.
+session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed
+session.Method()      // string: session.VerificationMode ("full" or "token")
+
+// The full per-check breakdown is also available directly:
+session.Checks.Liveness  // LivenessCheck{Performed, Passed}
+session.Checks.Age       // AgeCheck{Performed, Passed, Gate}
+session.Checks.Document  // DocumentCheck{Performed, Passed, DocumentType, Country}
+session.Checks.FaceMatch // FaceMatchCheck{Performed, Passed}
 ```
 
 Session statuses: `pending`, `in_progress`, `completed`, `failed`, `canceled`, `claimed`.

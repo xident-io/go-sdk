@@ -16,7 +16,13 @@ const (
 	DefaultMaxRetries = 3
 
 	// SDKVersion is the current SDK version string.
-	SDKVersion = "1.3.1"
+	//
+	// 2.0.0 is a breaking change: SessionResult was migrated to the frozen
+	// v1 tenant result contract (see README.md "v2 breaking changes" at the
+	// top). Do not tag the release until all four SDKs (Go, Node, PHP,
+	// Python) are ready -- the Go module proxy pins a tag immutably, so a
+	// tag pushed early can never be re-cut.
+	SDKVersion = "2.0.0"
 
 	// apiVersion is the API version path prefix.
 	apiVersion = "verify/v1"

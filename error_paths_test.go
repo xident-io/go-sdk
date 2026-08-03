@@ -2,7 +2,6 @@ package xident
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -177,75 +176,35 @@ func TestFace2FA_GetUser_APIError(t *testing.T) {
 	}
 }
 
-// TestSessionResult_MalformedAgeResult pins what the two age helpers do with a
-// body they cannot read.
+// TestSessionResult_AgeCheckDoesNotOverrideStatusVerdict guards the same
+// invariant the pre-v1 AgeResult-blob tests used to: even when Status is
+// Success, AgeBracket() and Method() must still report exactly what Checks
+// and VerificationMode carry -- never something inferred from Status.
 //
-// AgeResult is a json.RawMessage -- it is copied verbatim out of the envelope
-// and never validated on the way in, so a truncated or wrongly-shaped value
-// reaches these helpers intact. On an age gate the only safe answer is
-// "unknown": returning a bracket derived from garbage, or panicking inside a
-// caller's request handler, are both worse than nil.
-func TestSessionResult_MalformedAgeResult(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-	}{
-		{"truncated object", `{"verified_bracket":`},
-		{"array not object", `[18]`},
-		{"bare string", `"eighteen"`},
-		{"bare number", `18`},
-		{"empty bytes", ``},
+// Under the old json.RawMessage design this needed malformed-payload cases
+// (truncated JSON, wrong types) because the helpers had to parse untrusted
+// bytes. Checks.Age is now a typed struct field populated by the same
+// encoding/json decode as the rest of SessionResult, so there is no separate
+// parse step left to fail -- the equivalent "performed but not passed" /
+// "never performed" cases are covered by TestSessionResult_AgeBracket in
+// session_result_test.go.
+func TestSessionResult_AgeCheckDoesNotOverrideStatusVerdict(t *testing.T) {
+	// Status is Success on purpose. "The session passed, so there must be a
+	// bracket" is the tempting inference, and it is wrong: the bracket has to
+	// come from Checks.Age, not be invented because the verdict passed.
+	s := &SessionResult{
+		Status: SessionStatusSuccess,
+		Checks: Checks{Age: AgeCheck{}}, // zero value: never performed
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Status is Success on purpose. "The session passed, so there must
-			// be a bracket" is the tempting inference, and it is wrong: the
-			// bracket has to come out of the payload. A helper that invented
-			// one here would hand the caller a threshold nobody verified.
-			s := &SessionResult{
-				Status:    SessionStatusSuccess,
-				AgeResult: json.RawMessage(tt.raw),
-			}
-
-			if got := s.AgeBracket(); got != nil {
-				t.Errorf("AgeBracket() = %d, want nil for undecodable age result %q", *got, tt.raw)
-			}
-			if got := s.Method(); got != "" {
-				t.Errorf("Method() = %q, want empty string for undecodable age result %q", got, tt.raw)
-			}
-			if !s.IsVerified() {
-				t.Error("IsVerified() = false; the verdict must come from Status, not from the age payload")
-			}
-		})
+	if got := s.AgeBracket(); got != nil {
+		t.Errorf("AgeBracket() = %d, want nil when Checks.Age was never performed", *got)
 	}
-}
-
-// TestSessionResult_WellFormedButUnusableAgeResult covers the decodable-yet-
-// unhelpful shapes: valid JSON objects whose fields are the wrong type or
-// absent. These must also report "unknown" rather than coercing.
-func TestSessionResult_WellFormedButUnusableAgeResult(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-	}{
-		{"no recognised keys", `{"other":1}`},
-		{"bracket is a string", `{"verified_bracket":"18"}`},
-		{"estimated age is a string", `{"estimated_age":"21"}`},
-		{"method is a number", `{"method":7}`},
+	if got := s.Method(); got != "" {
+		t.Errorf("Method() = %q, want empty string when VerificationMode was not sent", got)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &SessionResult{AgeResult: json.RawMessage(tt.raw)}
-
-			if got := s.AgeBracket(); got != nil {
-				t.Errorf("AgeBracket() = %d, want nil for %q", *got, tt.raw)
-			}
-			if got := s.Method(); got != "" {
-				t.Errorf("Method() = %q, want empty string for %q", got, tt.raw)
-			}
-		})
+	if !s.IsVerified() {
+		t.Error("IsVerified() = false; the verdict must come from Status, not from Checks.Age")
 	}
 }
 

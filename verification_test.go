@@ -201,7 +201,7 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/result/sess_abc", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/xtk_abc", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
@@ -209,12 +209,16 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 		fmt.Fprint(w, `{
 			"success": true,
 			"data": {
-				"id": "sess_abc",
+				"token": "xtk_abc",
 				"status": "success",
-				"age_result": {"verified_bracket": 18, "method": "ml_fast", "confidence": 0.95},
-				"liveness_result": {"passed": true},
-				"country_code": "US",
-				"min_age": 18,
+				"verified": true,
+				"verification_mode": "full",
+				"checks": {
+					"liveness": {"performed": true, "passed": true},
+					"age": {"performed": true, "passed": true, "gate": 18},
+					"document": {"performed": false, "passed": false},
+					"face_match": {"performed": false, "passed": false}
+				},
 				"created_at": "2026-03-23T12:00:00Z",
 				"completed_at": "2026-03-23T12:01:00Z"
 			},
@@ -222,13 +226,13 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 		}`)
 	})
 
-	session, resp, err := client.Verification.GetResult(context.Background(), "sess_abc")
+	session, resp, err := client.Verification.GetResult(context.Background(), "xtk_abc")
 	if err != nil {
 		t.Fatalf("GetResult() error: %v", err)
 	}
 
-	if session.ID != "sess_abc" {
-		t.Errorf("ID = %q, want %q", session.ID, "sess_abc")
+	if session.Token != "xtk_abc" {
+		t.Errorf("Token = %q, want %q", session.Token, "xtk_abc")
 	}
 	if !session.IsVerified() {
 		t.Error("IsVerified() should be true")
@@ -249,8 +253,8 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 	}
 
 	method := session.Method()
-	if method != "ml_fast" {
-		t.Errorf("Method() = %q, want %q", method, "ml_fast")
+	if method != "full" {
+		t.Errorf("Method() = %q, want %q", method, "full")
 	}
 
 	if resp.RequestID != "req_res_1" {
@@ -262,19 +266,19 @@ func TestVerification_GetResult_Pending(t *testing.T) {
 	client, mux, teardown := setup()
 	defer teardown()
 
-	mux.HandleFunc("/"+apiVersion+"/result/sess_p", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/"+apiVersion+"/result/xtk_p", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{
 			"success": true,
 			"data": {
-				"id": "sess_p",
+				"token": "xtk_p",
 				"status": "in_progress",
-				"created_at": "2026-03-23T12:00:00Z",
-				"remaining_attempts": 3
+				"verified": false,
+				"created_at": "2026-03-23T12:00:00Z"
 			}
 		}`)
 	})
 
-	session, _, err := client.Verification.GetResult(context.Background(), "sess_p")
+	session, _, err := client.Verification.GetResult(context.Background(), "xtk_p")
 	if err != nil {
 		t.Fatalf("GetResult() error: %v", err)
 	}
@@ -287,9 +291,6 @@ func TestVerification_GetResult_Pending(t *testing.T) {
 	}
 	if session.IsTerminal() {
 		t.Error("IsTerminal() should be false")
-	}
-	if session.RemainingAttempts == nil || *session.RemainingAttempts != 3 {
-		t.Errorf("RemainingAttempts = %v, want 3", session.RemainingAttempts)
 	}
 }
 

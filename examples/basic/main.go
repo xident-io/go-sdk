@@ -89,9 +89,14 @@ func main() {
 			"user_id":         userID,
 			"verified":        session.IsVerified(),
 			"status":          session.Status, // American "canceled" from /result
-			"age_bracket":     session.AgeBracket(),
-			"method":          session.Method(),
-			"terminal":        session.IsTerminal(),
+			// AgeBracket() reads session.Checks.Age (Gate, guarded by Passed) --
+			// no more parsing an "age_result" blob by hand.
+			"age_bracket": session.AgeBracket(),
+			// Method() is session.VerificationMode: "full" (document +
+			// biometric checks ran) or "token" (returning Xident-ID user), not
+			// the client-side ML method name older SDK versions returned here.
+			"method":   session.Method(),
+			"terminal": session.IsTerminal(),
 		})
 	})
 

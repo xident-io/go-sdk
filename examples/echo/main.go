@@ -73,9 +73,13 @@ func main() {
 			"callback_status": c.QueryParam("status"),
 			"verified":        session.IsVerified(),
 			"status":          session.Status,
-			"age_bracket":     session.AgeBracket(),
-			"method":          session.Method(),
-			"terminal":        session.IsTerminal(),
+			// session.Checks holds the per-check breakdown (liveness, age,
+			// document, face_match); AgeBracket() reads Checks.Age for you.
+			"age_bracket": session.AgeBracket(),
+			// "full" (document + biometric checks ran) or "token" (returning
+			// Xident-ID user) -- session.VerificationMode, not an ML method name.
+			"method":   session.Method(),
+			"terminal": session.IsTerminal(),
 		})
 	})
 
@@ -118,8 +122,10 @@ func main() {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"verified":    session.IsVerified(),
-			"status":      session.Status,
+			"verified": session.IsVerified(),
+			"status":   session.Status,
+			// AgeBracket() reads session.Checks.Age; Method() returns
+			// session.VerificationMode ("full" or "token").
 			"age_bracket": session.AgeBracket(),
 			"method":      session.Method(),
 			"terminal":    session.IsTerminal(),
