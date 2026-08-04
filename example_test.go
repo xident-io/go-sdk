@@ -24,7 +24,7 @@ import (
 	"net/http/httptest"
 	"time"
 
-	xident "github.com/xident-io/go-sdk"
+	xident "github.com/xident-io/go-sdk/v2"
 )
 
 // Example shows the whole verification round trip: start a session, send the

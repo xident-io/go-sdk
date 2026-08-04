@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	xident "github.com/xident-io/go-sdk"
+	xident "github.com/xident-io/go-sdk/v2"
 )
 
 func main() {

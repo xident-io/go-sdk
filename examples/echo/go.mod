@@ -2,13 +2,13 @@
 // leak into the root SDK module (the SDK stays dependency-free). The `replace`
 // directive points at the local SDK checkout so the example always builds
 // against the code in this repository.
-module github.com/xident-io/go-sdk/examples/echo
+module github.com/xident-io/go-sdk/v2/examples/echo
 
 go 1.23.0
 
 require (
 	github.com/labstack/echo/v4 v4.13.4
-	github.com/xident-io/go-sdk v0.0.0
+	github.com/xident-io/go-sdk/v2 v2.0.0
 )
 
 require (
@@ -23,4 +23,4 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 )
 
-replace github.com/xident-io/go-sdk => ../..
+replace github.com/xident-io/go-sdk/v2 => ../..

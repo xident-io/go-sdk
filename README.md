@@ -48,7 +48,7 @@ never again be renamed or removed underneath you.
 ## Installation
 
 ```bash
-go get github.com/xident-io/go-sdk
+go get github.com/xident-io/go-sdk/v2
 ```
 
 ## Quick Start
@@ -68,7 +68,7 @@ import (
     "log"
     "net/http"
 
-    xident "github.com/xident-io/go-sdk"
+    xident "github.com/xident-io/go-sdk/v2"
 )
 
 func main() {

@@ -2,13 +2,13 @@
 // leak into the root SDK module (the SDK stays dependency-free). The `replace`
 // directive points at the local SDK checkout so the example always builds
 // against the code in this repository.
-module github.com/xident-io/go-sdk/examples/fiber
+module github.com/xident-io/go-sdk/v2/examples/fiber
 
 go 1.23
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.9
-	github.com/xident-io/go-sdk v0.0.0
+	github.com/xident-io/go-sdk/v2 v2.0.0
 )
 
 require (
@@ -25,4 +25,4 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 )
 
-replace github.com/xident-io/go-sdk => ../..
+replace github.com/xident-io/go-sdk/v2 => ../..
