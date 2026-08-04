@@ -123,9 +123,10 @@ type DocumentCheck struct {
 	// "drivers_license"), set when document verification was performed.
 	DocumentType string `json:"document_type,omitempty"`
 
-	// Country is the ISO 3166-1 alpha-2 country code the session's IP
-	// resolved to. Set regardless of Performed -- it is IP-derived, not
-	// something the document itself establishes.
+	// Country is the ISO 3166-1 alpha-2 ISSUING country extracted from the
+	// presented document. Absent when no document was processed. (Servers
+	// before 2026-08-04 wrongly sent the IP-derived country here; the
+	// user's connection country is now the top-level IPCountry field.)
 	Country string `json:"country,omitempty"`
 }
 
