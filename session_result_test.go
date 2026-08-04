@@ -130,6 +130,9 @@ func TestSessionResult_ParsesGoldenFixture(t *testing.T) {
 	if s.VerificationMode != "full" {
 		t.Errorf("VerificationMode = %q, want %q", s.VerificationMode, "full")
 	}
+	if s.IPCountry != "DE" {
+		t.Errorf("IPCountry = %q, want %q", s.IPCountry, "DE")
+	}
 	if s.ExternalUserID != "cust-4711" {
 		t.Errorf("ExternalUserID = %q, want %q", s.ExternalUserID, "cust-4711")
 	}

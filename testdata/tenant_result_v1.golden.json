@@ -3,6 +3,7 @@
   "status": "success",
   "verified": true,
   "verification_mode": "full",
+  "ip_country": "DE",
   "external_user_id": "cust-4711",
   "checks": {
     "liveness": {

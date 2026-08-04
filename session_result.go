@@ -46,6 +46,14 @@ type SessionResult struct {
 	// what actually happened. Method() returns this value.
 	VerificationMode string `json:"verification_mode,omitempty"`
 
+	// IPCountry is the ISO 3166-1 alpha-2 country the end user connected
+	// from, IP-derived. Optional: absent on sessions created before
+	// 2026-08-04 and on any session where IP geolocation failed. Distinct
+	// from Checks.Document.Country, which is the document's issuing
+	// country -- the two can legitimately differ (a passport issued in one
+	// country, presented from another).
+	IPCountry string `json:"ip_country,omitempty"`
+
 	// ExternalUserID is the consumer-provided user ID from the init call.
 	ExternalUserID string `json:"external_user_id,omitempty"`
 
