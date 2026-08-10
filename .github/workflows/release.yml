@@ -1,5 +1,17 @@
 name: Release
 
+# There is deliberately NO publish job here, and adding one would be wrong.
+#
+# Go modules have no registry upload step: proxy.golang.org fetches straight
+# from the git tag the first time anyone requests the version. Pushing the tag
+# IS the publish. Verified 2026-08-10 — v2.0.0 and v2.1.0 are already served by
+# the proxy with nothing in CI ever having pushed them.
+#
+# The consequence to respect: a version the proxy has served is cached
+# IMMUTABLY. Re-cutting a tag does not reach consumers, so this workflow's only
+# useful job is to fail LOUDLY before a bad tag is ever pushed — which is what
+# version-guard does.
+
 on:
   push:
     tags:
