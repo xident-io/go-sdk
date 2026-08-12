@@ -2,13 +2,13 @@
 // leak into the root SDK module (the SDK stays dependency-free). The `replace`
 // directive points at the local SDK checkout so the example always builds
 // against the code in this repository.
-module github.com/xident-io/go-sdk/v2/examples/gin
+module github.com/xident-io/go-sdk/v3/examples/gin
 
 go 1.23.0
 
 require (
 	github.com/gin-gonic/gin v1.11.0
-	github.com/xident-io/go-sdk/v2 v2.0.0
+	github.com/xident-io/go-sdk/v3 v3.0.1
 )
 
 require (
@@ -45,4 +45,4 @@ require (
 	google.golang.org/protobuf v1.36.9 // indirect
 )
 
-replace github.com/xident-io/go-sdk/v2 => ../..
+replace github.com/xident-io/go-sdk/v3 => ../..

@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	xident "github.com/xident-io/go-sdk/v2"
+	xident "github.com/xident-io/go-sdk/v3"
 )
 
 func main() {
