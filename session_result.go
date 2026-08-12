@@ -38,7 +38,7 @@ type SessionResult struct {
 	// set as open -- new reasons may be added, so switch with a default.
 	Reason string `json:"reason,omitempty"`
 
-	// VerificationMode reports WHICH PATH produced this verdict:
+	// VerificationType reports WHICH PATH produced this verdict:
 	//
 	//	"full"       document path -- OCR and/or document-to-selfie face match
 	//	"age_check"  browser-only path -- liveness and/or age bracket, no document
@@ -51,7 +51,7 @@ type SessionResult struct {
 	//
 	// Treat the set as open: new paths may be added, so always handle a
 	// default. Checks remains the source of truth for which methods ran.
-	VerificationMode string `json:"verification_mode,omitempty"`
+	VerificationType string `json:"verification_type,omitempty"`
 
 	// IPCountry is the ISO 3166-1 alpha-2 country the end user connected
 	// from, IP-derived. Optional: absent on sessions created before
@@ -184,10 +184,11 @@ func (s *SessionResult) AgeBracket() *int {
 	return &gate
 }
 
-// Method returns the verification mode used for this session ("full" for a
+// Method returns the verification TYPE for this session -- which path
+// produced the verdict ("full" for a
 // document + face match, "age_check" browser-only, "xident_id" reuse,
 // "eu_wallet" a wallet presentation).
 // Returns an empty string if the server did not send one.
 func (s *SessionResult) Method() string {
-	return s.VerificationMode
+	return s.VerificationType
 }

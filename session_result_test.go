@@ -127,8 +127,8 @@ func TestSessionResult_ParsesGoldenFixture(t *testing.T) {
 	if s.Reason != "" {
 		t.Errorf("Reason = %q, want empty (this session succeeded)", s.Reason)
 	}
-	if s.VerificationMode != "full" {
-		t.Errorf("VerificationMode = %q, want %q", s.VerificationMode, "full")
+	if s.VerificationType != "full" {
+		t.Errorf("VerificationType = %q, want %q", s.VerificationType, "full")
 	}
 	if s.IPCountry != "DE" {
 		t.Errorf("IPCountry = %q, want %q", s.IPCountry, "DE")
@@ -181,7 +181,7 @@ func TestSessionResult_ParsesGoldenFixture(t *testing.T) {
 		t.Errorf("AgeBracket() = %v, want 21", bracket)
 	}
 
-	// VerificationMode reports which PATH produced the verdict: "full"
+	// VerificationType reports which PATH produced the verdict: "full"
 	// (document + face match), "age_check" (browser-only), "xident_id"
 	// (Xident-ID reuse) or "eu_wallet". NOT the "auto"/"document"/"facial"
 	// method-selection override InitParams.VerificationMode sends at session
@@ -204,7 +204,7 @@ func TestSessionResult_ParsesGoldenFixture(t *testing.T) {
 // field (it does not opt into DisallowUnknownFields), so this must decode
 // without error, and the fields the two shapes share (status, reason,
 // external_user_id, created_at, completed_at) must still populate. It must
-// NOT populate Checks or VerificationMode -- those are new v1-only fields
+// NOT populate Checks or VerificationType -- those are new v1-only fields
 // absent from the old payload, so they stay at their zero value rather than
 // (incorrectly) inheriting anything from the old blob fields.
 func TestSessionResult_TolerantOfLegacyVerbosePayload(t *testing.T) {
@@ -254,7 +254,7 @@ func TestSessionResult_TolerantOfLegacyVerbosePayload(t *testing.T) {
 		t.Errorf("AgeBracket() = %d, want nil -- no v1 checks object was present", *bracket)
 	}
 	if method := s.Method(); method != "" {
-		t.Errorf("Method() = %q, want empty -- no v1 verification_mode was present", method)
+		t.Errorf("Method() = %q, want empty -- no v1 verification_type was present", method)
 	}
 }
 
@@ -351,7 +351,7 @@ func TestSessionResult_Method(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &SessionResult{VerificationMode: tt.mode}
+			s := &SessionResult{VerificationType: tt.mode}
 			if got := s.Method(); got != tt.want {
 				t.Errorf("Method() = %q, want %q", got, tt.want)
 			}
@@ -365,7 +365,7 @@ func TestSessionResult_JSONRoundtrip(t *testing.T) {
 		Token:            "xtk_test",
 		Status:           SessionStatusSuccess,
 		Verified:         true,
-		VerificationMode: "full",
+		VerificationType: "full",
 		ExternalUserID:   "cust-1",
 		Checks: Checks{
 			Age: AgeCheck{Performed: true, Passed: true, Gate: 18},

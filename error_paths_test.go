@@ -179,7 +179,7 @@ func TestFace2FA_GetUser_APIError(t *testing.T) {
 // TestSessionResult_AgeCheckDoesNotOverrideStatusVerdict guards the same
 // invariant the pre-v1 AgeResult-blob tests used to: even when Status is
 // Success, AgeBracket() and Method() must still report exactly what Checks
-// and VerificationMode carry -- never something inferred from Status.
+// and VerificationType carry -- never something inferred from Status.
 //
 // Under the old json.RawMessage design this needed malformed-payload cases
 // (truncated JSON, wrong types) because the helpers had to parse untrusted
@@ -201,7 +201,7 @@ func TestSessionResult_AgeCheckDoesNotOverrideStatusVerdict(t *testing.T) {
 		t.Errorf("AgeBracket() = %d, want nil when Checks.Age was never performed", *got)
 	}
 	if got := s.Method(); got != "" {
-		t.Errorf("Method() = %q, want empty string when VerificationMode was not sent", got)
+		t.Errorf("Method() = %q, want empty string when VerificationType was not sent", got)
 	}
 	if !s.IsVerified() {
 		t.Error("IsVerified() = false; the verdict must come from Status, not from Checks.Age")

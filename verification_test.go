@@ -212,7 +212,7 @@ func TestVerification_GetResult_Completed(t *testing.T) {
 				"token": "xtk_abc",
 				"status": "success",
 				"verified": true,
-				"verification_mode": "full",
+				"verification_type": "full",
 				"checks": {
 					"liveness": {"performed": true, "passed": true},
 					"age": {"performed": true, "passed": true, "gate": 18},

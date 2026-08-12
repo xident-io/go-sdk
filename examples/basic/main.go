@@ -92,7 +92,7 @@ func main() {
 			// AgeBracket() reads session.Checks.Age (Gate, guarded by Passed) --
 			// no more parsing an "age_result" blob by hand.
 			"age_bracket": session.AgeBracket(),
-			// Method() is session.VerificationMode -- which PATH ran:
+			// Method() is session.VerificationType -- which PATH ran:
 			// "full" (document + face match), "age_check" (browser-only),
 			// "xident_id" (Xident-ID reuse) or "eu_wallet". Not the
 			// client-side ML method name older SDK versions returned here.

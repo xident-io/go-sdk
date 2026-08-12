@@ -2,7 +2,7 @@
   "token": "xtk_golden0001",
   "status": "success",
   "verified": true,
-  "verification_mode": "full",
+  "verification_type": "full",
   "ip_country": "DE",
   "external_user_id": "cust-4711",
   "checks": {

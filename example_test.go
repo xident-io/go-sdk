@@ -41,7 +41,7 @@ func Example() {
 		case "/verify/v1/result/xtk_7c31":
 			fmt.Fprint(w, `{"success":true,
 				"data":{"token":"xtk_7c31","status":"success","verified":true,
-					"verification_mode":"full",
+					"verification_type":"full",
 					"checks":{
 						"liveness":{"performed":true,"passed":true},
 						"age":{"performed":true,"passed":true,"gate":18},
@@ -358,7 +358,7 @@ func ExampleVerificationService_GetResult() {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":true,
 			"data":{"token":"xtk_7c31","status":"failed","verified":false,
-				"reason":"age_below_threshold","verification_mode":"full",
+				"reason":"age_below_threshold","verification_type":"full",
 				"checks":{
 					"liveness":{"performed":true,"passed":true},
 					"age":{"performed":true,"passed":false,"gate":18},
@@ -410,7 +410,7 @@ func ExampleSessionResult_AgeBracket() {
 	// built by hand here so the example needs no server.
 	session := &xident.SessionResult{
 		Status:           xident.SessionStatusSuccess,
-		VerificationMode: "full",
+		VerificationType: "full",
 		Checks: xident.Checks{
 			Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 18},
 		},
