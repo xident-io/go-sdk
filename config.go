@@ -24,7 +24,7 @@ const (
 	// release until all four SDKs (Go, Node, PHP, Python) are ready -- the
 	// Go module proxy pins a tag immutably, so a tag pushed early can never
 	// be re-cut.
-	SDKVersion = "2.1.0"
+	SDKVersion = "3.0.0"
 
 	// apiVersion is the API version path prefix.
 	apiVersion = "verify/v1"
