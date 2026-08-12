@@ -21,9 +21,10 @@ you're upgrading from 1.x, read this before anything else:
 - **`AgeBracket()` now reads `Checks.Age`** instead of parsing an `age_result`
   JSON blob by hand: it returns `&Checks.Age.Gate` when `Checks.Age.Passed` is
   true, `nil` otherwise. Same signature (`*int`), new source.
-- **`Method()` now returns `VerificationMode`** (`"full"` or `"token"` -- the
-  server's own record of what actually ran: document + biometric checks, or a
-  returning Xident-ID user's cheap token reuse). It is **not** the client-side
+- **`Method()` now returns `VerificationMode`** -- which PATH produced the
+  verdict: `"full"` (document + face match), `"age_check"` (browser liveness
+  and/or age bracket, no document), `"xident_id"` (returning user reused a
+  bracket on their Xident account), or `"eu_wallet"`. It is **not** the client-side
   ML method name (`"ml_fast"`, `"ocr"`) that 1.x returned -- that concept isn't
   part of the v1 contract. If your code branches on `Method()`'s value,
   re-check those branches.
@@ -316,7 +317,7 @@ session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
 
 session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed
-session.Method()      // string: session.VerificationMode ("full" or "token")
+session.Method()      // string: "full" | "age_check" | "xident_id" | "eu_wallet"
 
 // The full per-check breakdown is also available directly:
 session.Checks.Liveness  // LivenessCheck{Performed, Passed}

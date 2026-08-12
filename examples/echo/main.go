@@ -125,7 +125,7 @@ func main() {
 			"verified": session.IsVerified(),
 			"status":   session.Status,
 			// AgeBracket() reads session.Checks.Age; Method() returns
-			// session.VerificationMode ("full" or "token").
+			// session.VerificationMode ("full" | "age_check" | "xident_id" | "eu_wallet").
 			"age_bracket": session.AgeBracket(),
 			"method":      session.Method(),
 			"terminal":    session.IsTerminal(),

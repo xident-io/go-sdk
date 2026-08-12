@@ -38,12 +38,19 @@ type SessionResult struct {
 	// set as open -- new reasons may be added, so switch with a default.
 	Reason string `json:"reason,omitempty"`
 
-	// VerificationMode is the server's internal verification-type distinction
-	// for this session: "full" (document + biometric checks ran) or "token"
-	// (a returning Xident-ID user, cheap token reuse). This is NOT the same
-	// value space as InitParams.VerificationMode ("auto"/"document"/"facial"),
-	// which selects a METHOD at session creation time -- this field reports
-	// what actually happened. Method() returns this value.
+	// VerificationMode reports WHICH PATH produced this verdict:
+	//
+	//	"full"       document path -- OCR and/or document-to-selfie face match
+	//	"age_check"  browser-only path -- liveness and/or age bracket, no document
+	//	"xident_id"  returning user reused a bracket already on their Xident account
+	//	"eu_wallet"  EU Digital Identity Wallet presentation
+	//
+	// This is NOT the same value space as InitParams.VerificationMode
+	// ("auto"/"document"/"facial"), which selects a METHOD at session creation
+	// time -- this field reports what actually happened. Method() returns it.
+	//
+	// Treat the set as open: new paths may be added, so always handle a
+	// default. Checks remains the source of truth for which methods ran.
 	VerificationMode string `json:"verification_mode,omitempty"`
 
 	// IPCountry is the ISO 3166-1 alpha-2 country the end user connected
@@ -178,7 +185,8 @@ func (s *SessionResult) AgeBracket() *int {
 }
 
 // Method returns the verification mode used for this session ("full" for a
-// document + biometric check, "token" for a returning Xident-ID user).
+// document + face match, "age_check" browser-only, "xident_id" reuse,
+// "eu_wallet" a wallet presentation).
 // Returns an empty string if the server did not send one.
 func (s *SessionResult) Method() string {
 	return s.VerificationMode

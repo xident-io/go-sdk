@@ -181,11 +181,12 @@ func TestSessionResult_ParsesGoldenFixture(t *testing.T) {
 		t.Errorf("AgeBracket() = %v, want 21", bracket)
 	}
 
-	// VerificationMode on the real contract is "full" or "token" -- the
-	// server's internal verification-type distinction (document + biometric
-	// checks vs. a cheap Xident-ID token reuse), NOT the "auto"/"document"
-	// /"facial" method-selection override InitParams.VerificationMode sends
-	// at session creation. Method() surfaces whichever string the wire sent.
+	// VerificationMode reports which PATH produced the verdict: "full"
+	// (document + face match), "age_check" (browser-only), "xident_id"
+	// (Xident-ID reuse) or "eu_wallet". NOT the "auto"/"document"/"facial"
+	// method-selection override InitParams.VerificationMode sends at session
+	// creation. Method() surfaces whichever string the wire sent. This fixture
+	// is a document session, so "full" is the expected value.
 	if got := s.Method(); got != "full" {
 		t.Errorf("Method() = %q, want %q", got, "full")
 	}
