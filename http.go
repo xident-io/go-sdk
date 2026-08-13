@@ -59,6 +59,7 @@ func (c *Client) newRequest(method, path string, body any) (*http.Request, error
 	}
 
 	req.Header.Set("X-API-Key", c.apiKey)
+	req.Header.Set("X-API-Version", c.apiVersion)
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
 
