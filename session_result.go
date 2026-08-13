@@ -67,6 +67,15 @@ type SessionResult struct {
 	// Checks is the per-method breakdown of what ran and whether it passed.
 	Checks Checks `json:"checks"`
 
+	// Risk is the session's risk assessment, or nil when the session produced
+	// no risk signals.
+	//
+	// Sent by the API since 2026-08-06 and silently discarded by this SDK
+	// until 3.1.0 -- see the note on Checks.EUWallet. Declared here in wire
+	// position (after Checks, before CreatedAt) so a re-serialized result
+	// matches the API's field order.
+	Risk *Risk `json:"risk,omitempty"`
+
 	// CreatedAt is when the session was created (RFC 3339).
 	CreatedAt string `json:"created_at"`
 
@@ -102,6 +111,22 @@ type Checks struct {
 	// comparison inside the same pipeline run produced a result -- a
 	// blacklist hit is reported as skipped, not as a face-match failure.
 	FaceMatch FaceMatchCheck `json:"face_match"`
+
+	// EUWallet reports an EU Digital Identity Wallet presentation.
+	//
+	// The API has sent this since 2026-08-06 and this SDK silently discarded
+	// it until 3.1.0: encoding/json ignores unknown fields, and this SDK's
+	// golden fixture was a stale copy that did not contain it either, so the
+	// two agreed with each other and no test could notice. Before this field
+	// existed here, a wallet-verified session showed all four other checks as
+	// performed:false and looked like nothing had run at all.
+	EUWallet EUWalletCheck `json:"eu_wallet"`
+
+	// AML reports sanctions/PEP screening of the extracted identity. Document
+	// path only, and performed:false until screening is enabled for the
+	// tenant. Also sent since 2026-08-06 and also silently discarded until
+	// 3.1.0 -- see the note on EUWallet.
+	AML AMLCheck `json:"aml"`
 }
 
 // LivenessCheck is a liveness detection outcome.
@@ -141,6 +166,30 @@ type DocumentCheck struct {
 type FaceMatchCheck struct {
 	Performed bool `json:"performed"`
 	Passed    bool `json:"passed"`
+}
+
+// EUWalletCheck reports an EU Digital Identity Wallet presentation.
+type EUWalletCheck struct {
+	Performed bool `json:"performed"`
+	Passed    bool `json:"passed"`
+}
+
+// AMLCheck reports sanctions/PEP screening of the extracted identity.
+type AMLCheck struct {
+	Performed bool `json:"performed"`
+	Passed    bool `json:"passed"`
+}
+
+// Risk is the session's risk assessment.
+//
+// A struct rather than a bare string, matching the wire, so future signals get
+// a home without another breaking change -- the same reason the API models it
+// as an object. Nil when the session produced no risk signals (the field is
+// omitempty on the wire), so always nil-check before reading Band.
+type Risk struct {
+	// Band is the coarse risk bucket: "low", "medium" or "high". Treat the set
+	// as open and handle a default.
+	Band string `json:"band"`
 }
 
 // IsVerified returns true if the user PASSED verification.
