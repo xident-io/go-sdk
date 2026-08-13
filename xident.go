@@ -46,6 +46,10 @@ type Client struct {
 	httpClient *http.Client
 	maxRetries int
 	userAgent  string
+	// apiVersion is the dated API version sent as X-API-Version. Defaults to
+	// PinnedAPIVersion — the version this SDK release was built against — so the
+	// result types and the payload always agree.
+	apiVersion string
 
 	// common service shared by all resource services. This is the go-github
 	// "common service" pattern: each resource service is a type alias of this
@@ -91,6 +95,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 		},
 		maxRetries: DefaultMaxRetries,
 		userAgent:  defaultUserAgent,
+		apiVersion: PinnedAPIVersion,
 	}
 
 	if strings.HasPrefix(apiKey, "pk_") {

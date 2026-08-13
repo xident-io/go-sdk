@@ -26,8 +26,28 @@ const (
 	// be re-cut.
 	SDKVersion = "3.0.1"
 
-	// apiVersion is the API version path prefix.
+	// apiVersion is the API version path PREFIX. Not to be confused with
+	// PinnedAPIVersion below — this one is part of the URL, that one is the dated
+	// response contract. The two are unrelated, and naming them alike is how the
+	// verification_mode/verification_type confusion started.
 	apiVersion = "verify/v1"
+
+	// PinnedAPIVersion is the dated API version this SDK release was built
+	// against, sent as X-API-Version on every request.
+	//
+	// Pinning in the SDK rather than relying on the project's dashboard setting is
+	// deliberate: this SDK's result types match THIS shape, so a customer whose
+	// project is pinned to an older version still gets the shape these structs
+	// parse. The alternative — sending nothing — means a newer SDK reading an
+	// older shape silently leaves fields empty.
+	//
+	// Consequently, upgrading the MAJOR version of this SDK is an explicit opt-in
+	// to a new API version. Set WithAPIVersion to override per client, e.g. to
+	// trial a newer version before changing the dashboard pin.
+	//
+	// NOT derived from SDKVersion: they move on different clocks, and an SDK patch
+	// release must never change which API shape a customer receives.
+	PinnedAPIVersion = "2026-08-13"
 
 	// defaultUserAgent is the User-Agent header value.
 	defaultUserAgent = "Xident-Go/" + SDKVersion
@@ -97,5 +117,25 @@ func WithMaxRetries(n int) Option {
 func WithUserAgent(ua string) Option {
 	return func(c *Client) {
 		c.userAgent = ua
+	}
+}
+
+// WithAPIVersion overrides the dated API version sent as X-API-Version.
+//
+// The default is PinnedAPIVersion, the version this SDK release was built
+// against, and that default is the right choice for almost everyone: it
+// guarantees the result types below match the payload the server sends.
+//
+// Override it to trial a NEWER API version before changing your project's
+// dashboard pin — but be aware that the newer version's shape may not map cleanly
+// onto this release's types, which is exactly what upgrading the SDK is for.
+//
+// An empty string is ignored rather than sending an empty header, since an empty
+// X-API-Version would be rejected by the server as invalid.
+func WithAPIVersion(v string) Option {
+	return func(c *Client) {
+		if v != "" {
+			c.apiVersion = v
+		}
 	}
 }
