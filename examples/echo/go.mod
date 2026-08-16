@@ -4,7 +4,7 @@
 // against the code in this repository.
 module github.com/xident-io/go-sdk/v3/examples/echo
 
-go 1.23.0
+go 1.26.6
 
 require (
 	github.com/labstack/echo/v4 v4.13.4
