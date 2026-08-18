@@ -159,7 +159,6 @@ The client is safe for concurrent use across goroutines. Create one and reuse it
 | `Theme` | string | No | `light`, `dark`, `system` |
 | `Locale` | string | No | `en`, `de`, `es`, `fr`, `it`, `pt`, `nl`, `pl`, `tr`, `ar`, `ja` |
 | `Purpose` | string | No | `age_verification` (default) or `id_verification` |
-| `Metadata` | string | No | Opaque string (max 500 chars), passed through verbatim and returned unchanged on the result (not parsed or base64-encoded) |
 
 Returns: `result.Token` (the init token, `xit_…`), `result.VerifyURL`. The
 **result** token (`xtk_…`) you pass to `GetResult` comes from the callback
