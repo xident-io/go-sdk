@@ -127,6 +127,46 @@ type Checks struct {
 	// tenant. Also sent since 2026-08-06 and also silently discarded until
 	// 3.1.0 -- see the note on EUWallet.
 	AML AMLCheck `json:"aml"`
+
+	// DataMatch reports whether the identity data you supplied at init
+	// (`expected`) agrees with the presented document, field by field. Sent
+	// since 2026-09-05 and OPTIONAL on the wire: nil means the check was not
+	// performed (no `expected` supplied, no document read, or the reference
+	// never reached the session). Gate on `DataMatch != nil && DataMatch.Passed`,
+	// which fails closed. The values themselves are never returned.
+	DataMatch *DataMatchCheck `json:"data_match,omitempty"`
+}
+
+// DataMatchOutcome is one field's verdict in a DataMatchCheck.
+type DataMatchOutcome string
+
+const (
+	// DataMatchOutcomeMatch: the document agrees with what you supplied.
+	DataMatchOutcomeMatch DataMatchOutcome = "match"
+	// DataMatchOutcomeMismatch: the document disagrees.
+	DataMatchOutcomeMismatch DataMatchOutcome = "mismatch"
+	// DataMatchOutcomeNotOnDocument: the document does not carry the field
+	// (for example nationality on a US driver's licence), so it could
+	// neither confirm nor contradict it. Blocks Passed.
+	DataMatchOutcomeNotOnDocument DataMatchOutcome = "not_on_document"
+)
+
+// DataMatchFields holds one outcome per field you asked about; fields you
+// did not supply are empty.
+type DataMatchFields struct {
+	FirstName      DataMatchOutcome `json:"first_name,omitempty"`
+	LastName       DataMatchOutcome `json:"last_name,omitempty"`
+	DateOfBirth    DataMatchOutcome `json:"date_of_birth,omitempty"`
+	DocumentNumber DataMatchOutcome `json:"document_number,omitempty"`
+	Nationality    DataMatchOutcome `json:"nationality,omitempty"`
+}
+
+// DataMatchCheck is the data-match verdict. Passed is true only when every
+// requested field matched.
+type DataMatchCheck struct {
+	Performed bool            `json:"performed"`
+	Passed    bool            `json:"passed"`
+	Fields    DataMatchFields `json:"fields"`
 }
 
 // LivenessCheck is a liveness detection outcome.
