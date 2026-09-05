@@ -384,3 +384,77 @@ func TestVerification_GetResult_NotFound(t *testing.T) {
 		t.Fatalf("expected *NotFoundError, got %T: %v", err, err)
 	}
 }
+
+// Data match (2026-09-05): `expected` is a nested object and `mismatch_policy`
+// a sibling string; both are omitted entirely when unset so an integration
+// that never heard of them sends exactly the body it sent before.
+func TestVerification_Init_Expected(t *testing.T) {
+	client, mux, teardown := setup()
+	defer teardown()
+
+	mux.HandleFunc("/"+apiVersion+"/init", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var params map[string]any
+		json.Unmarshal(body, &params)
+
+		exp, ok := params["expected"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected must be a nested object, got %T", params["expected"])
+		}
+		want := map[string]any{
+			"first_name":    "Ramin",
+			"last_name":     "Farmani",
+			"date_of_birth": "1985-01-01",
+			"nationality":   "IR",
+		}
+		for k, v := range want {
+			if exp[k] != v {
+				t.Errorf("expected.%s = %v, want %v", k, exp[k], v)
+			}
+		}
+		if _, present := exp["document_number"]; present {
+			t.Error("an empty expected field must be omitted, not sent as \"\"")
+		}
+		if params["mismatch_policy"] != "review" {
+			t.Errorf("mismatch_policy = %v, want review", params["mismatch_policy"])
+		}
+		fmt.Fprint(w, `{"success":true,"data":{"token":"xit_dm","verify_url":"https://v.io?t=xit_dm"}}`)
+	})
+
+	_, _, err := client.Verification.Init(context.Background(), &InitParams{
+		CallbackURL: "https://example.com/cb",
+		Purpose:     "id_verification",
+		Expected: &ExpectedIdentity{
+			FirstName:   "Ramin",
+			LastName:    "Farmani",
+			DateOfBirth: "1985-01-01",
+			Nationality: "IR",
+		},
+		MismatchPolicy: MismatchPolicyReview,
+	})
+	if err != nil {
+		t.Fatalf("Init() error: %v", err)
+	}
+}
+
+func TestVerification_Init_OmitsExpectedWhenUnset(t *testing.T) {
+	client, mux, teardown := setup()
+	defer teardown()
+
+	mux.HandleFunc("/"+apiVersion+"/init", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var params map[string]any
+		json.Unmarshal(body, &params)
+		for _, k := range []string{"expected", "mismatch_policy"} {
+			if _, present := params[k]; present {
+				t.Errorf("%s must be absent when unset", k)
+			}
+		}
+		fmt.Fprint(w, `{"success":true,"data":{"token":"xit_plain","verify_url":"https://v.io?t=xit_plain"}}`)
+	})
+
+	if _, _, err := client.Verification.Init(context.Background(), &InitParams{CallbackURL: "https://example.com/cb", MinAge: 18}); err != nil {
+		t.Fatalf("Init() error: %v", err)
+	}
+}
+

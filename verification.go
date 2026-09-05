@@ -78,7 +78,41 @@ type InitParams struct {
 	// and returned unchanged on the session result. Xident does not parse,
 	// encode, or base64 it. Use it for order IDs, plan names, etc.
 	Metadata string `json:"metadata,omitempty"`
+
+	// Expected is identity data you already hold about the user, to be
+	// checked against the document they present (data match, since
+	// 2026-09-05). Any subset of the fields. Needs a document, so pair it with
+	// Purpose "id_verification" or VerificationMode "document". The values
+	// never reach the browser; the result carries only verdicts, per field,
+	// in Checks.DataMatch.
+	Expected *ExpectedIdentity `json:"expected,omitempty"`
+
+	// MismatchPolicy decides what a mismatch does. MismatchPolicyReport
+	// (default): the mismatch is reported in the result and the outcome is
+	// unchanged. MismatchPolicyReview: any mismatch sends the session to your
+	// review queue with reason "data_mismatch". Only meaningful with Expected.
+	MismatchPolicy string `json:"mismatch_policy,omitempty"`
 }
+
+// ExpectedIdentity is what you already know about the user, for the data
+// match. Every field is optional; an empty field is not sent.
+type ExpectedIdentity struct {
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
+	// DateOfBirth in YYYY-MM-DD.
+	DateOfBirth    string `json:"date_of_birth,omitempty"`
+	DocumentNumber string `json:"document_number,omitempty"`
+	// Nationality as ISO 3166-1 alpha-2 (e.g. "DE").
+	Nationality string `json:"nationality,omitempty"`
+}
+
+// Mismatch policies for InitParams.MismatchPolicy.
+const (
+	// MismatchPolicyReport reports mismatches in the result; the outcome is unchanged.
+	MismatchPolicyReport = "report"
+	// MismatchPolicyReview sends any mismatch to the review queue (reason "data_mismatch").
+	MismatchPolicyReview = "review"
+)
 
 // Init creates a new verification session and returns an init token.
 //
