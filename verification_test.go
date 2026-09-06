@@ -402,10 +402,10 @@ func TestVerification_Init_Expected(t *testing.T) {
 			t.Fatalf("expected must be a nested object, got %T", params["expected"])
 		}
 		want := map[string]any{
-			"first_name":    "Ramin",
-			"last_name":     "Farmani",
-			"date_of_birth": "1985-01-01",
-			"nationality":   "IR",
+			"first_name":    "Jane",
+			"last_name":     "Smith",
+			"date_of_birth": "1990-05-14",
+			"nationality":   "GB",
 		}
 		for k, v := range want {
 			if exp[k] != v {
@@ -425,10 +425,10 @@ func TestVerification_Init_Expected(t *testing.T) {
 		CallbackURL: "https://example.com/cb",
 		Purpose:     "id_verification",
 		Expected: &ExpectedIdentity{
-			FirstName:   "Ramin",
-			LastName:    "Farmani",
-			DateOfBirth: "1985-01-01",
-			Nationality: "IR",
+			FirstName:   "Jane",
+			LastName:    "Smith",
+			DateOfBirth: "1990-05-14",
+			Nationality: "GB",
 		},
 		MismatchPolicy: MismatchPolicyReview,
 	})

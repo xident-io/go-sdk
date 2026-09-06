@@ -159,6 +159,8 @@ The client is safe for concurrent use across goroutines. Create one and reuse it
 | `Theme` | string | No | `light`, `dark`, `system` |
 | `Locale` | string | No | `en`, `de`, `es`, `fr`, `it`, `pt`, `nl`, `pl`, `tr`, `ar`, `ja` |
 | `Purpose` | string | No | `age_verification` (default) or `id_verification` |
+| `Expected` | *ExpectedIdentity | No | Identity data you already hold about the user, checked against the document (data match). Any subset of `FirstName`, `LastName`, `DateOfBirth` (YYYY-MM-DD), `DocumentNumber`, `Nationality` (ISO alpha-2). Needs a document: pair with `Purpose: "id_verification"` or `VerificationMode: "document"`. The values never reach the browser. |
+| `MismatchPolicy` | string | No | `MismatchPolicyReport` (default): mismatches are reported, the outcome is unchanged. `MismatchPolicyReview`: any mismatch sends the session to your review queue with reason `data_mismatch`. Only with `Expected`. |
 
 Returns: `result.Token` (the init token, `xit_…`), `result.VerifyURL`. The
 **result** token (`xtk_…`) you pass to `GetResult` comes from the callback
@@ -323,7 +325,38 @@ session.Checks.Liveness  // LivenessCheck{Performed, Passed}
 session.Checks.Age       // AgeCheck{Performed, Passed, Gate}
 session.Checks.Document  // DocumentCheck{Performed, Passed, DocumentType, Country}
 session.Checks.FaceMatch // FaceMatchCheck{Performed, Passed}
+session.Checks.DataMatch // *DataMatchCheck{Performed, Passed, Fields} -- nil unless you sent Expected
 ```
+
+### Data match
+
+Send what you already know about the user and let the document confirm it.
+The values travel server to server and never reach the browser; the result
+carries only verdicts, one per field you asked about.
+
+```go
+result, _, err := client.Verification.Init(ctx, &xident.InitParams{
+    CallbackURL: "https://example.com/verify/callback",
+    Purpose:     "id_verification",
+    Expected: &xident.ExpectedIdentity{
+        FirstName:   "Jane",
+        LastName:    "Smith",
+        DateOfBirth: "1990-05-14",
+        Nationality: "GB",
+    },
+    MismatchPolicy: xident.MismatchPolicyReview, // or MismatchPolicyReport (default)
+})
+
+// Later, on the result:
+dm := session.Checks.DataMatch
+if dm != nil && dm.Passed {
+    // every field you sent matched the document
+}
+// dm.Fields.DateOfBirth is "match", "mismatch" or "not_on_document"
+```
+
+`Checks.DataMatch` is nil when the check was not performed (no `Expected`,
+no document read). Gate on `dm != nil && dm.Passed`; that fails closed.
 
 Session statuses: `pending`, `in_progress`, `completed`, `failed`, `canceled`, `claimed`.
 
