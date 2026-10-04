@@ -100,8 +100,9 @@ type SessionResult struct {
 // A check that was never attempted has Performed == false; its Passed field
 // is then the zero value (false) too, but that is NOT a meaningful "did not
 // pass" -- it means the check never ran. Always test Performed before making
-// a decision based on Passed, or use AgeBracket() which does this for the
-// age check.
+// a decision based on Passed. For the age, use AgeBracket() or ProvesAge():
+// a passed session can carry the age band with the age check itself not
+// performed (a Xident ID reuse, an EU wallet presentation).
 type Checks struct {
 	// Liveness reports whether a liveness check ran and its outcome.
 	Liveness LivenessCheck `json:"liveness"`
@@ -187,9 +188,10 @@ type AgeCheck struct {
 	Performed bool `json:"performed"`
 	Passed    bool `json:"passed"`
 
-	// Gate is the age threshold that was tested (12, 15, 18, 21, or 25).
-	// Meaningful only when Performed is true; use AgeBracket() rather than
-	// reading Gate directly -- it applies the Passed guard for you.
+	// Gate is the age band the session was held to (12, 15, 18, 21, or 25).
+	// Use AgeBracket() or ProvesAge() rather than reading Gate directly: they
+	// also require a passed, non-test session. Gate is set even when
+	// Performed is false, for a Xident ID reuse or an EU wallet presentation.
 	//
 	// Gate is 0 when the session tested no age threshold. An ID verification
 	// (Purpose "id_verification") has none, so its result carries no gate,
@@ -269,19 +271,37 @@ func (s *SessionResult) IsTerminal() bool {
 	return s.Status.IsTerminal()
 }
 
-// AgeBracket returns the age threshold the session PROVED the user is above
-// (12, 15, 18, 21, or 25), or nil if the age check did not run, did not
-// pass, or tested no threshold.
+// AgeBracket returns the age band the session proved the user is above (12,
+// 15, 18, 21 or 25), or nil when it proved none. It follows the same rule as
+// ProvesAge, so the two never disagree: the session passed (IsVerified), it
+// is not a test-key result, and Checks.Age.Gate is present. ProvesAge(n) is
+// true exactly when AgeBracket() is not nil and is at least n.
 //
-// It deliberately does not distinguish "never ran" from "ran and failed" --
-// both are "no proven bracket", and coercing either into a number would hand
-// the caller a threshold nobody actually cleared.
+// Like ProvesAge, it does not look at Checks.Age.Performed or Passed: a
+// Xident ID reuse and an EU wallet presentation pass with both false,
+// because that session ran no age check of its own, and their gate is the
+// band the API stands behind.
 //
-// The same holds for a passed check with no gate: an ID verification has no
-// age threshold, so its result carries no gate, and returning 0 would claim
-// a proven age of 0.
+// Nil, never 0, when there is no band: an ID verification passes with no
+// gate, and returning 0 would claim a proven age of 0. A failed session has
+// no band either, whatever its gate. A test-key result (Test) is nil here;
+// use AgeBracketAllowingTest in local development with a test key.
 func (s *SessionResult) AgeBracket() *int {
-	if !s.Checks.Age.Passed || s.Checks.Age.Gate <= 0 {
+	if s.Test {
+		return nil
+	}
+	return s.ageBracketIgnoringTest()
+}
+
+// AgeBracketAllowingTest is AgeBracket that also reports the band of a
+// test-key result. The same rule as ProvesAgeAllowingTest: only for local
+// development, never in production code.
+func (s *SessionResult) AgeBracketAllowingTest() *int {
+	return s.ageBracketIgnoringTest()
+}
+
+func (s *SessionResult) ageBracketIgnoringTest() *int {
+	if !s.IsVerified() || s.Checks.Age.Gate <= 0 {
 		return nil
 	}
 	gate := s.Checks.Age.Gate

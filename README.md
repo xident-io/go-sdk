@@ -216,7 +216,7 @@ ends in `+fail`.
 `token` is the **result** token (`xtk_…`) read from the callback redirect's
 `token` query param — not the init token (`xit_…`) returned by `Init`.
 
-Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `ProvesAge(minAge)`, `ProvesAgeAllowingTest(minAge)`, `AgeBracket()`, `Method()`
+Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `ProvesAge(minAge)`, `ProvesAgeAllowingTest(minAge)`, `AgeBracket()`, `AgeBracketAllowingTest()`, `Method()`
 
 ### Webhooks (optional server-to-server)
 
@@ -387,7 +387,7 @@ session.ProvesAge(18) // true only if the session passed AND Checks.Age.Gate >= 
 session.ProvesAgeAllowingTest(18) // the same, but a test-key result counts:
                                   // local development with a test key only
 session.Test          // true for a test-key verdict, which grants nothing
-session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed with a gate
+session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- the same rule as ProvesAge: a passed, non-test session with a gate, else nil
                       // (an id_verification tests no age band, so it is nil there)
 session.Method()      // string: "full" | "age_check" | "xident_id" | "eu_wallet"
 
