@@ -5,14 +5,18 @@
 //
 //	client := xident.NewClient("sk_live_xxx")
 //
-//	// Start a verification session
+//	// Start a verification session (needs a server key, sk_ or ak_)
 //	result, _, err := client.Verification.Init(ctx, &xident.InitParams{
 //	    CallbackURL: "https://example.com/callback",
-//	    MinAge:      18,
+//	    UserID:      "user_123", // required: your own id for the person
+//	    MinAge:      18,         // 12 to 25, rounded up to the next band
 //	})
+//	// Redirect the browser to result.VerifyURL.
 //
-//	// Retrieve the result after the user completes verification
-//	session, _, err := client.Verification.GetResult(ctx, result.Token)
+//	// Retrieve the result after the user completes verification. The
+//	// widget appends the xtk_ result token to your callback URL as ?token=;
+//	// result.Token is the xit_ init token and is not used here.
+//	session, _, err := client.Verification.GetResult(ctx, resultToken)
 //	if session.IsVerified() {
 //	    fmt.Println("User is verified!")
 //	}

@@ -43,7 +43,13 @@ func main() {
 		result, _, err := client.Verification.Init(ctx, &xident.InitParams{
 			// The browser is redirected back to CallbackURL when the flow ends.
 			CallbackURL: "https://example.com/callback",
-			MinAge:      18,
+			// UserID is required: your own id for the person being verified,
+			// for example the signed-in user's id. It comes back on the
+			// callback and in the result.
+			UserID: "user_123",
+			// MinAge is 12 to 25; Xident rounds it up to the next of 12, 15,
+			// 18, 21 or 25 (19 is enforced as 21).
+			MinAge: 18,
 		})
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

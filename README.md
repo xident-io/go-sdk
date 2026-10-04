@@ -79,7 +79,8 @@ func main() {
     http.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
         result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
             CallbackURL: "https://yoursite.com/callback", // browser returns here
-            MinAge:      18,
+            UserID:      "user_123", // required: your own id for the person
+            MinAge:      18,         // 12 to 25, rounded up to the next band
         })
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -115,14 +116,16 @@ func main() {
 
 ## How It Works
 
-1. Your backend calls `POST /verify/v1/init` with your secret key (`sk_…`).
+1. Your backend calls `POST /verify/v1/init` with a server key (`sk_…` or
+   `ak_…`). Every setting of the session (minimum age, purpose, mode, user
+   id) comes from this call; nothing the browser sends can change it.
 2. The SDK returns an **init** token (`xit_…`, one-time use, 10-minute TTL) plus
    a `verify_url`. You redirect the browser to that URL.
 3. The user completes verification on `verify.xident.io` (liveness + age check).
 4. The widget redirects the browser back to your `callback_url` with query
    params: `?status=success|failed|canceled`, `token=xtk_…` (the **result**
-   token, different from the init token), and `user_id` (only if you supplied
-   one). This is a plain browser GET redirect, **not** a signed webhook.
+   token, different from the init token), and `user_id`. This is a plain
+   browser GET redirect, **not** a signed webhook.
 5. Your backend reads `token` from the query string and calls
    `GET /verify/v1/result/{token}` (via `GetResult`) to fetch the outcome.
 6. You make the authorization decision based on the verified result.
@@ -149,22 +152,45 @@ The client is safe for concurrent use across goroutines. Create one and reuse it
 
 ### Verification.Init(ctx, params) -> (*InitResult, *Response, error)
 
+`Init` needs a server key (`sk_live_`, `sk_test_`, `ak_live_` or `ak_test_`).
+A public key (`pk_`) gets 403 `SECRET_KEY_REQUIRED`. Never put a server key in
+a browser or a mobile app.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `CallbackURL` | string | Yes | Browser GET redirect target; widget returns here with `?status`, `token` (xtk_), `user_id`. HTTPS required (http OK for localhost) |
-| `MinAge` | int | No | 1–99 (0–99 when `Purpose` is `id_verification`). Default: rule's configured threshold. Trained brackets: 12, 15, 18, 21, 25 |
+| `UserID` | string | Yes | Your own identifier for the person being verified. It comes back on the callback (`user_id`) and in the result (`ExternalUserID`). Sent exactly as given |
+| `MinAge` | int | For `age_verification` | A whole number from 12 to 25. Xident rounds it up to the next of 12, 15, 18, 21 or 25 and enforces that band, so 19 is enforced as 21. An `id_verification` takes no `MinAge` (leave it at 0) |
 | `SuccessURL` | string | No | Redirect on success |
 | `FailedURL` | string | No | Redirect on failure |
-| `UserID` | string | No | Your internal user ID; echoed back on the callback as `user_id` |
 | `Theme` | string | No | `light`, `dark`, `system` |
 | `Locale` | string | No | `en`, `de`, `es`, `fr`, `it`, `pt`, `nl`, `pl`, `tr`, `ar`, `ja` |
-| `Purpose` | string | No | `age_verification` (default) or `id_verification` |
+| `Purpose` | string | No | `age_verification` (default) or `id_verification`. An ID verification requires liveness, a document and a face match |
+| `VerificationMode` | string | No | `auto` (default), `document` or `facial`. `facial` cannot be combined with `Purpose: "id_verification"`, which always needs a document |
 | `Expected` | *ExpectedIdentity | No | Identity data you already hold about the user, checked against the document (data match). Any subset of `FirstName`, `LastName`, `DateOfBirth` (YYYY-MM-DD), `DocumentNumber`, `Nationality` (ISO alpha-2). Needs a document: pair with `Purpose: "id_verification"` or `VerificationMode: "document"`. The values never reach the browser. |
 | `MismatchPolicy` | string | No | `MismatchPolicyReport` (default): mismatches are reported, the outcome is unchanged. `MismatchPolicyReview`: any mismatch sends the session to your review queue with reason `data_mismatch`. Only with `Expected`. |
 
 Returns: `result.Token` (the init token, `xit_…`), `result.VerifyURL`. The
 **result** token (`xtk_…`) you pass to `GetResult` comes from the callback
 redirect's `token` query param, not from `Init`.
+
+`Init` checks `UserID`, `MinAge`, `Purpose` and `VerificationMode` before it
+sends anything. A broken rule returns a `*ValidationError` with the code the
+API would give, a nil `Response`, and no request is made:
+
+| Code | When |
+|------|------|
+| `MISSING_USER_ID` | `UserID` is empty or only spaces |
+| `INVALID_MIN_AGE` | an age verification with `MinAge` outside 12 to 25 (0 included), or an ID verification with a `MinAge` other than 0 |
+| `INVALID_VERIFICATION_MODE` | `Purpose: "id_verification"` with `VerificationMode: "facial"` |
+
+The API itself also answers these 400 codes: `INVALID_USER_ID` (the user id is
+a Xident key or token), `INVALID_LIVENESS_DIFFICULTY` (not `easy`, `medium` or
+`hard`), and the callback URL codes. Reusing an `Idempotency-Key` with a
+different body gets 422 `IDEMPOTENCY_KEY_MISMATCH`.
+
+To force a failed session while testing, use a test key and a `UserID` that
+ends in `+fail`.
 
 ### Verification.GetResult(ctx, token) -> (*SessionResult, *Response, error)
 
@@ -303,9 +329,9 @@ if err != nil {
 }
 ```
 
-Error types: `AuthenticationError` (401/403), `ValidationError` (400/4xx), `NotFoundError` (404), `RateLimitError` (429), `ServerError` (5xx).
+Error types: `AuthenticationError` (401/403), `ValidationError` (400/4xx, and the checks `Init` makes before sending), `NotFoundError` (404), `RateLimitError` (429), `ServerError` (5xx).
 
-All error types embed `ErrorResponse` which provides `Code`, `Message`, and `RequestID` fields.
+All error types embed `ErrorResponse` which provides `Code`, `Message`, and `RequestID` fields. Its `Response` is nil when the SDK refused the call before sending it.
 
 ## Session Result Helpers
 
@@ -317,7 +343,8 @@ session.IsFailed()    // true if status == "failed"
 session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
 
-session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed
+session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed with a gate
+                      // (an id_verification tests no age band, so it is nil there)
 session.Method()      // string: "full" | "age_check" | "xident_id" | "eu_wallet"
 
 // The full per-check breakdown is also available directly:
@@ -337,7 +364,8 @@ carries only verdicts, one per field you asked about.
 ```go
 result, _, err := client.Verification.Init(ctx, &xident.InitParams{
     CallbackURL: "https://example.com/verify/callback",
-    Purpose:     "id_verification",
+    UserID:      "user_123",
+    Purpose:     "id_verification", // takes no MinAge
     Expected: &xident.ExpectedIdentity{
         FirstName:   "Jane",
         LastName:    "Smith",
@@ -418,7 +446,7 @@ See `examples/` for Gin, Echo, and Fiber examples. Each is its own Go module
 
 ## Security
 
-- **Secret key**: Never expose `sk_*` in frontend code
+- **Server key**: `Init` needs a server key (`sk_*` or `ak_*`); a public key (`pk_*`) gets 403 `SECRET_KEY_REQUIRED`. Never expose a server key in a browser or a mobile app
 - **TLS 1.2+**: Enforced on all API calls
 - **Webhooks**: Always verify signatures (constant-time HMAC comparison)
 - **Verification tokens**: Always re-verify server-side. Never trust URL params alone.

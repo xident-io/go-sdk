@@ -60,6 +60,7 @@ func Example() {
 	// 1. Start a session and send the browser to the widget.
 	init, _, err := client.Verification.Init(ctx, &xident.InitParams{
 		CallbackURL: "https://example.com/xident/callback",
+		UserID:      "usr_1042", // your own id for the person, required
 		MinAge:      18,
 	})
 	if err != nil {
@@ -319,12 +320,14 @@ func ExampleVerificationService_Init() {
 		// Required. https only, except http://localhost while developing.
 		CallbackURL: "https://example.com/xident/callback",
 
-		// The threshold to prove. Trained models cover 12, 15, 18, 21 and 25;
-		// any other value falls back to document verification.
+		// Required for an age verification: 12 to 25. Xident rounds it up to
+		// the next of 12, 15, 18, 21 or 25, so 19 is enforced as 21.
 		MinAge: 18,
 
-		// Optional. UserID is echoed back on the callback as ?user_id=.
-		UserID:   "usr_1042",
+		// Required. Your own id for the person; it comes back on the
+		// callback as ?user_id= and in the result.
+		UserID: "usr_1042",
+
 		Locale:   "de",
 		Theme:    "system",
 		Metadata: "order_88231", // returned verbatim on the session result

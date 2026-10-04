@@ -183,6 +183,10 @@ type AgeCheck struct {
 	// Gate is the age threshold that was tested (12, 15, 18, 21, or 25).
 	// Meaningful only when Performed is true; use AgeBracket() rather than
 	// reading Gate directly -- it applies the Passed guard for you.
+	//
+	// Gate is 0 when the session tested no age threshold. An ID verification
+	// (Purpose "id_verification") has none, so its result carries no gate,
+	// even when Passed is true because the document's date of birth was read.
 	Gate int `json:"gate,omitempty"`
 }
 
@@ -259,14 +263,18 @@ func (s *SessionResult) IsTerminal() bool {
 }
 
 // AgeBracket returns the age threshold the session PROVED the user is above
-// (12, 15, 18, 21, or 25), or nil if the age check did not run or did not
-// pass.
+// (12, 15, 18, 21, or 25), or nil if the age check did not run, did not
+// pass, or tested no threshold.
 //
 // It deliberately does not distinguish "never ran" from "ran and failed" --
 // both are "no proven bracket", and coercing either into a number would hand
 // the caller a threshold nobody actually cleared.
+//
+// The same holds for a passed check with no gate: an ID verification has no
+// age threshold, so its result carries no gate, and returning 0 would claim
+// a proven age of 0.
 func (s *SessionResult) AgeBracket() *int {
-	if !s.Checks.Age.Passed {
+	if !s.Checks.Age.Passed || s.Checks.Age.Gate <= 0 {
 		return nil
 	}
 	gate := s.Checks.Age.Gate

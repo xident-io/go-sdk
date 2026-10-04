@@ -8,7 +8,7 @@
 //
 // The callback_url is a plain browser GET redirect, NOT a signed webhook. The
 // widget appends ?status=success|failed|canceled, token=xtk_... (the RESULT
-// token, distinct from the xit_ init token), and user_id (if you supplied one).
+// token, distinct from the xit_ init token), and user_id (the UserID you sent).
 //
 // Run with:
 //
@@ -45,8 +45,11 @@ func main() {
 		result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
 			// The browser is redirected back to CallbackURL when the flow ends.
 			CallbackURL: "https://example.com/callback",
-			MinAge:      18,
-			UserID:      "user_123",
+			// MinAge is 12 to 25; Xident rounds it up to the next of 12, 15,
+			// 18, 21 or 25 (19 is enforced as 21).
+			MinAge: 18,
+			// UserID is required: your own id for the person being verified.
+			UserID: "user_123",
 			// SuccessURL / FailedURL are optional status-specific redirect
 			// overrides; the callback query params carry the result either way.
 		})

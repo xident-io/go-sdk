@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // VerificationService provides methods to create verification sessions and
@@ -18,7 +19,16 @@ type VerificationService service
 
 // InitParams contains the parameters for creating a verification session.
 //
-// CallbackURL is the only required field. All other fields are optional.
+// CallbackURL and UserID are always required. MinAge is required for an age
+// verification (the default Purpose) and must be left at 0 for an ID
+// verification. Init checks these rules before it sends anything, and
+// answers a broken rule with a *ValidationError carrying the same code the
+// API would answer (MISSING_USER_ID, INVALID_MIN_AGE or
+// INVALID_VERIFICATION_MODE).
+//
+// Init needs a server key (sk_live_, sk_test_, ak_live_ or ak_test_). A
+// public key (pk_) gets 403 SECRET_KEY_REQUIRED. Never put a server key in a
+// browser or a mobile app.
 type InitParams struct {
 	// CallbackURL is where the verification widget redirects the browser back
 	// to once the flow finishes. Required. Must be an https URL (http is
@@ -33,17 +43,20 @@ type InitParams struct {
 	//              arrives as "failed".
 	//   - token:   the RESULT token (xtk_ prefixed). Pass this token, NOT the
 	//              init token, to GetResult to fetch the outcome.
-	//   - user_id: echoed back only if you supplied UserID at init time.
+	//   - user_id: the UserID you passed to Init, echoed back.
 	//
 	// This is a browser redirect, not a signed webhook -- never trust these
 	// query params on their own. Always re-verify server-side with GetResult.
 	// (For the separate, optional signed-webhook feature, see WebhookService.)
 	CallbackURL string `json:"callback_url"`
 
-	// MinAge is the minimum age threshold, 1-99 (0-99 when Purpose is
-	// "id_verification"). Defaults to the rule's configured threshold if
-	// omitted. The trained age-bracket models cover 12, 15, 18, 21, and 25;
-	// other values fall back to document verification.
+	// MinAge is required for an age verification: a whole number from 12 to
+	// 25. Xident rounds it up to the next of 12, 15, 18, 21 or 25 and enforces
+	// that band, so 19 is enforced as 21. The SDK sends the value as given;
+	// the API does the rounding.
+	//
+	// An ID verification (Purpose "id_verification") takes no MinAge: leave it
+	// at 0. Any other value is refused with INVALID_MIN_AGE.
 	MinAge int `json:"min_age,omitempty"`
 
 	// SuccessURL is where to redirect the user after successful verification.
@@ -52,8 +65,11 @@ type InitParams struct {
 	// FailedURL is where to redirect the user after failed verification.
 	FailedURL string `json:"failed_url,omitempty"`
 
-	// UserID is your internal user identifier. Echoed back on the callback
-	// redirect (as the user_id query param) for correlation.
+	// UserID is required. It is your own identifier for the person being
+	// verified. It comes back on the callback (as the user_id query param)
+	// and in the result (SessionResult.ExternalUserID). It is sent exactly as
+	// given; a value that is empty or only spaces is refused with
+	// MISSING_USER_ID. It must not be a Xident key or token.
 	UserID string `json:"user_id,omitempty"`
 
 	// Theme sets the verification widget theme: "light", "dark", or "system"
@@ -64,14 +80,19 @@ type InitParams struct {
 	Locale string `json:"locale,omitempty"`
 
 	// Purpose selects the verification intent: "age_verification" (default)
-	// or "id_verification". With "id_verification", MinAge may be 0-99.
+	// or "id_verification". An ID verification requires liveness, a document
+	// and a face match, and takes no MinAge.
 	Purpose string `json:"purpose,omitempty"`
+
 	// VerificationMode overrides the rule engine's choice of methods for this
 	// session: "auto" (default), "document" to force document + face match, or
 	// "facial" to force on-device age estimation.
 	//
-	// It composes with MinAge rather than replacing it — "document" with
+	// It composes with MinAge rather than replacing it: "document" with
 	// MinAge 21 still enforces 21, it just insists the proof be a document.
+	//
+	// "facial" cannot be combined with Purpose "id_verification", which always
+	// needs a document. That pair is refused with INVALID_VERIFICATION_MODE.
 	VerificationMode string `json:"verification_mode,omitempty"`
 
 	// Metadata is an opaque string (up to 500 chars) passed through verbatim
@@ -116,11 +137,15 @@ const (
 
 // Init creates a new verification session and returns an init token.
 //
-// The token is valid for 10 minutes. Redirect the user to the VerifyURL,
-// or pass the token to the Xident JS SDK.
+// The token is valid for 10 minutes. Redirect the user to the VerifyURL.
+//
+// Init checks UserID, MinAge, Purpose and VerificationMode before it sends
+// anything (see InitParams). A broken rule returns a *ValidationError with
+// the API's code and a nil Response, and no request is made.
 //
 //	result, resp, err := client.Verification.Init(ctx, &xident.InitParams{
-//	    CallbackURL: "https://example.com/webhook",
+//	    CallbackURL: "https://example.com/xident/callback",
+//	    UserID:      "user_123",
 //	    MinAge:      18,
 //	})
 //	if err != nil {
@@ -130,6 +155,9 @@ const (
 func (s *VerificationService) Init(ctx context.Context, params *InitParams) (*InitResult, *Response, error) {
 	if params == nil {
 		return nil, nil, fmt.Errorf("xident: params cannot be nil")
+	}
+	if err := params.validate(); err != nil {
+		return nil, nil, err
 	}
 
 	req, err := s.client.newRequest(http.MethodPost, "init", params)
@@ -144,6 +172,51 @@ func (s *VerificationService) Init(ctx context.Context, params *InitParams) (*In
 	}
 
 	return result, resp, nil
+}
+
+// The rules of POST /verify/v1/init that Init checks before it sends
+// anything. The codes and messages are the API's own, so a caller handles one
+// set of codes whether the SDK or the API refused the call.
+const (
+	purposeIDVerification  = "id_verification"
+	verificationModeFacial = "facial"
+
+	// minAgeFloor and minAgeCeiling bound MinAge for an age verification.
+	// The browser age models decide only the bands 12, 15, 18, 21 and 25, so
+	// an age outside 12 to 25 cannot be enforced as asked.
+	minAgeFloor   = 12
+	minAgeCeiling = 25
+
+	codeMissingUserID           = "MISSING_USER_ID"
+	codeInvalidMinAge           = "INVALID_MIN_AGE"
+	codeInvalidVerificationMode = "INVALID_VERIFICATION_MODE"
+
+	msgMissingUserID = "user_id is required: pass your own identifier for the person being verified"
+	msgInvalidMinAge = "min_age must be between 12 and 25; it is rounded up to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21). An id_verification takes no min_age."
+	msgFacialWithID  = "verification_mode facial cannot be combined with purpose id_verification, which always requires a document"
+)
+
+// validate applies the init rules the API enforces for UserID, MinAge,
+// Purpose and VerificationMode. Any Purpose other than "id_verification" is
+// checked as an age verification, the stricter reading, as the API does.
+// It returns nil or a *ValidationError whose Response is nil.
+func (p *InitParams) validate() error {
+	if strings.TrimSpace(p.UserID) == "" {
+		return newLocalValidationError(codeMissingUserID, msgMissingUserID)
+	}
+	if p.Purpose == purposeIDVerification {
+		if p.MinAge != 0 {
+			return newLocalValidationError(codeInvalidMinAge, msgInvalidMinAge)
+		}
+		if p.VerificationMode == verificationModeFacial {
+			return newLocalValidationError(codeInvalidVerificationMode, msgFacialWithID)
+		}
+		return nil
+	}
+	if p.MinAge < minAgeFloor || p.MinAge > minAgeCeiling {
+		return newLocalValidationError(codeInvalidMinAge, msgInvalidMinAge)
+	}
+	return nil
 }
 
 // GetResult retrieves the verification result for a token.

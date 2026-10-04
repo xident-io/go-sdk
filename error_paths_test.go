@@ -30,7 +30,7 @@ func TestServiceMethods_PropagateRequestConstructionError(t *testing.T) {
 		call func() (*Response, error)
 	}{
 		{"Verification.Init", func() (*Response, error) {
-			_, resp, err := c.Verification.Init(ctx, &InitParams{CallbackURL: "https://example.com/cb"})
+			_, resp, err := c.Verification.Init(ctx, &InitParams{CallbackURL: "https://example.com/cb", UserID: "usr_1", MinAge: 18})
 			return resp, err
 		}},
 		{"Verification.GetResult", func() (*Response, error) {

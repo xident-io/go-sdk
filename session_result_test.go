@@ -294,6 +294,14 @@ func TestSessionResult_AgeBracket(t *testing.T) {
 			check: AgeCheck{},
 			want:  nil,
 		},
+		{
+			// An ID verification tests no age threshold, so the API sends no
+			// gate, while a read date of birth on a passed session makes the
+			// check performed and passed. 0 is not a proven age.
+			name:  "performed and passed, no gate",
+			check: AgeCheck{Performed: true, Passed: true},
+			want:  nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -401,3 +409,59 @@ func TestSessionResult_JSONRoundtrip(t *testing.T) {
 
 // Helper function for test pointers.
 func intPtr(i int) *int { return &i }
+
+// TestSessionResult_IDVerificationWithoutGate parses the result shape an ID
+// verification has from the 2026-10 release: the session stores min_age 0,
+// so checks.age.gate is absent, while the document's date of birth makes the
+// age check performed and passed. The result must parse, report the pass,
+// offer no bracket, and write no gate back out.
+//
+// Mutation caught: dropping the Gate guard in AgeBracket (it then returns a
+// pointer to 0, a proven age nobody tested).
+func TestSessionResult_IDVerificationWithoutGate(t *testing.T) {
+	const payload = `{
+		"token": "xtk_id_1",
+		"status": "success",
+		"verified": true,
+		"verification_type": "full",
+		"external_user_id": "usr_1",
+		"checks": {
+			"liveness":   {"performed": true, "passed": true},
+			"age":        {"performed": true, "passed": true},
+			"document":   {"performed": true, "passed": true, "document_type": "passport", "country": "DE"},
+			"face_match": {"performed": true, "passed": true}
+		},
+		"created_at": "2026-10-05T10:00:00Z",
+		"completed_at": "2026-10-05T10:02:00Z"
+	}`
+
+	var s SessionResult
+	if err := json.Unmarshal([]byte(payload), &s); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+	if !s.IsVerified() {
+		t.Error("IsVerified() = false, want true")
+	}
+	if !s.Checks.Age.Performed || !s.Checks.Age.Passed {
+		t.Errorf("Checks.Age = %+v, want performed and passed", s.Checks.Age)
+	}
+	if s.Checks.Age.Gate != 0 {
+		t.Errorf("Checks.Age.Gate = %d, want 0 (absent)", s.Checks.Age.Gate)
+	}
+	if b := s.AgeBracket(); b != nil {
+		t.Errorf("AgeBracket() = %d, want nil: an ID verification proves no age band", *b)
+	}
+
+	out, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatalf("Unmarshal(roundtrip) error: %v", err)
+	}
+	age := back["checks"].(map[string]any)["age"].(map[string]any)
+	if _, present := age["gate"]; present {
+		t.Errorf("roundtrip wrote checks.age.gate = %v; the wire shape has no gate for an ID verification", age["gate"])
+	}
+}

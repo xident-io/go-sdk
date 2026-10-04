@@ -19,6 +19,10 @@ import (
 type ErrorResponse struct {
 	// Response is the HTTP response that caused this error. The body is
 	// already consumed and closed.
+	//
+	// Response is nil when the SDK refused the call before sending it, as
+	// Verification.Init does for a missing UserID or a MinAge outside 12 to
+	// 25. Check it for nil before reading Response.StatusCode.
 	Response *http.Response `json:"-"`
 
 	// Code is the machine-readable error code (e.g., "UNAUTHORIZED",
@@ -35,6 +39,9 @@ type ErrorResponse struct {
 
 // Error implements the error interface.
 func (e *ErrorResponse) Error() string {
+	if e.Response == nil {
+		return fmt.Sprintf("%s: %s (refused by the SDK, no request was sent)", e.Code, e.Message)
+	}
 	if e.RequestID != "" {
 		return fmt.Sprintf("%d %s: %s (request_id: %s)",
 			e.Response.StatusCode, e.Code, e.Message, e.RequestID)
@@ -73,6 +80,14 @@ type RateLimitError struct {
 // error (HTTP 5xx).
 type ServerError struct {
 	ErrorResponse
+}
+
+// newLocalValidationError builds the error for a request the SDK refuses
+// before sending it. It is the same *ValidationError type an API 400 gives,
+// so errors.As works the same way; Response and RequestID stay empty because
+// no request was made.
+func newLocalValidationError(code, message string) error {
+	return &ValidationError{ErrorResponse: ErrorResponse{Code: code, Message: message}}
 }
 
 // newErrorResponse creates the appropriate typed error based on the HTTP
