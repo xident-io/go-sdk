@@ -141,7 +141,8 @@ const (
 //
 // Init checks UserID, MinAge, Purpose and VerificationMode before it sends
 // anything (see InitParams). A broken rule returns a *ValidationError with
-// the API's code and a nil Response, and no request is made.
+// the API's code, a synthetic 400 Response and Local() true, and no request
+// is made.
 //
 //	result, resp, err := client.Verification.Init(ctx, &xident.InitParams{
 //	    CallbackURL: "https://example.com/xident/callback",
@@ -187,22 +188,29 @@ const (
 	minAgeFloor   = 12
 	minAgeCeiling = 25
 
+	purposeAgeVerification = "age_verification"
+
 	codeMissingUserID           = "MISSING_USER_ID"
+	codeInvalidPurpose          = "INVALID_PURPOSE"
 	codeInvalidMinAge           = "INVALID_MIN_AGE"
 	codeInvalidVerificationMode = "INVALID_VERIFICATION_MODE"
 
-	msgMissingUserID = "user_id is required: pass your own identifier for the person being verified"
-	msgInvalidMinAge = "min_age must be between 12 and 25; it is rounded up to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21). An id_verification takes no min_age."
-	msgFacialWithID  = "verification_mode facial cannot be combined with purpose id_verification, which always requires a document"
+	msgMissingUserID  = "user_id is required: pass your own identifier for the person being verified"
+	msgInvalidPurpose = "purpose must be 'age_verification' or 'id_verification'"
+	msgInvalidMinAge  = "min_age must be between 12 and 25; it is rounded up to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21). An id_verification takes no min_age."
+	msgFacialWithID   = "verification_mode facial cannot be combined with purpose id_verification, which always requires a document"
 )
 
-// validate applies the init rules the API enforces for UserID, MinAge,
-// Purpose and VerificationMode. Any Purpose other than "id_verification" is
-// checked as an age verification, the stricter reading, as the API does.
-// It returns nil or a *ValidationError whose Response is nil.
+// validate applies the init rules the API enforces for UserID, Purpose,
+// MinAge and VerificationMode, in the API's order. An empty Purpose is an age
+// verification; any other value than the two purposes is refused.
+// It returns nil or a local *ValidationError (see newLocalValidationError).
 func (p *InitParams) validate() error {
 	if strings.TrimSpace(p.UserID) == "" {
 		return newLocalValidationError(codeMissingUserID, msgMissingUserID)
+	}
+	if p.Purpose != "" && p.Purpose != purposeAgeVerification && p.Purpose != purposeIDVerification {
+		return newLocalValidationError(codeInvalidPurpose, msgInvalidPurpose)
 	}
 	if p.Purpose == purposeIDVerification {
 		if p.MinAge != 0 {

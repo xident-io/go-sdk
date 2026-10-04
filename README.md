@@ -190,13 +190,16 @@ Returns: `result.Token` (the init token, `xit_…`), `result.VerifyURL`. The
 **result** token (`xtk_…`) you pass to `GetResult` comes from the callback
 redirect's `token` query param, not from `Init`.
 
-`Init` checks `UserID`, `MinAge`, `Purpose` and `VerificationMode` before it
-sends anything. A broken rule returns a `*ValidationError` with the code the
-API would give, a nil `Response`, and no request is made:
+`Init` checks `UserID`, `Purpose`, `MinAge` and `VerificationMode` before it
+sends anything, in the API's order. A broken rule returns a
+`*ValidationError` with the code the API would give, a synthetic
+`400 Bad Request` `Response` (empty body) and `Local()` true, and no request
+is made:
 
 | Code | When |
 |------|------|
 | `MISSING_USER_ID` | `UserID` is empty or only spaces |
+| `INVALID_PURPOSE` | `Purpose` is set to anything but `age_verification` or `id_verification` |
 | `INVALID_MIN_AGE` | an age verification with `MinAge` outside 12 to 25 (0 included), or an ID verification with a `MinAge` other than 0 |
 | `INVALID_VERIFICATION_MODE` | `Purpose: "id_verification"` with `VerificationMode: "facial"` |
 
@@ -213,7 +216,7 @@ ends in `+fail`.
 `token` is the **result** token (`xtk_…`) read from the callback redirect's
 `token` query param — not the init token (`xit_…`) returned by `Init`.
 
-Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `ProvesAge(minAge)`, `AgeBracket()`, `Method()`
+Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `ProvesAge(minAge)`, `ProvesAgeAllowingTest(minAge)`, `AgeBracket()`, `Method()`
 
 ### Webhooks (optional server-to-server)
 
@@ -232,7 +235,19 @@ if err != nil {
     http.Error(w, "Invalid signature", 400)
     return
 }
-// event.Type, event.Data
+if event.Type == "session.success" {
+    result, err := event.SessionResult() // data is the same result GetResult returns
+    if err != nil {
+        http.Error(w, "Invalid payload", 400)
+        return
+    }
+    // The same decision as the callback: the age YOUR site requires, and a
+    // user your server started a verification for. A success alone is not
+    // enough: an ID verification passes without proving any age.
+    if result.ProvesAge(requiredMinAge) && startedFor(result.ExternalUserID) {
+        // grant access to result.ExternalUserID
+    }
+}
 ```
 
 ### Face 2FA
@@ -366,7 +381,12 @@ session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
 
 session.ProvesAge(18) // true only if the session passed AND Checks.Age.Gate >= 18
-                       // (false for an id_verification: it has no gate)
+                       // (false for an id_verification: it has no gate; true for
+                       // a Xident ID reuse, which passes with the gate but no new
+                       // age evidence; false for a test-key result)
+session.ProvesAgeAllowingTest(18) // the same, but a test-key result counts:
+                                  // local development with a test key only
+session.Test          // true for a test-key verdict, which grants nothing
 session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed with a gate
                       // (an id_verification tests no age band, so it is nil there)
 session.Method()      // string: "full" | "age_check" | "xident_id" | "eu_wallet"
@@ -470,6 +490,11 @@ small server-side session store you can run as is.
 
 See `examples/` for Gin, Echo, and Fiber examples. Each is its own Go module
 (so the SDK stays dependency-free); `cd examples/gin && go run .` to try one.
+With a test key every result is a test verdict, which `ProvesAge` refuses, so
+the examples never show a pass. For a local run only, set
+`XIDENT_ALLOW_TEST_RESULTS=1` with a `sk_test_` or `ak_test_` key: the
+examples then use `ProvesAgeAllowingTest`. They refuse to start with that
+setting and a live key.
 
 ## Security
 

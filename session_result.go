@@ -86,6 +86,13 @@ type SessionResult struct {
 	// ExpiresAt is when the session expires (RFC 3339), or empty if no
 	// expiration is set.
 	ExpiresAt string `json:"expires_at,omitempty"`
+
+	// Test is true when the verdict came from a test-mode session (a
+	// sk_test_ or ak_test_ key). A test session settles at once, without any
+	// real check of the person, so it grants nothing. The API omits the key
+	// on live sessions. ProvesAge refuses a test result; ProvesAgeAllowingTest
+	// accepts it, for local development with a test key only.
+	Test bool `json:"test,omitempty"`
 }
 
 // Checks is the per-check breakdown of a verification session's outcome.
@@ -282,8 +289,14 @@ func (s *SessionResult) AgeBracket() *int {
 }
 
 // ProvesAge reports whether this result proves that the person is at least
-// minAge years old: the session passed (IsVerified), the age check passed,
-// and the age threshold it tested (Checks.Age.Gate) is minAge or higher.
+// minAge years old: the session passed (IsVerified) and the age threshold it
+// was decided at (Checks.Age.Gate) is present and is minAge or higher.
+//
+// It does not look at Checks.Age.Performed or Checks.Age.Passed, on purpose.
+// A returning user who reuses the age already proven on their Xident ID
+// (VerificationType "xident_id") gets a passed session with the gate, but
+// this session captured no new age evidence, so both of those are false. The
+// verdict and the gate are what the API stands behind.
 //
 // Pass the age YOUR site requires, from your own server config, never a
 // value from the request. Xident enforces the band at or above the age you
@@ -301,12 +314,30 @@ func (s *SessionResult) AgeBracket() *int {
 // It does not check WHO the result is for. Also compare ExternalUserID with
 // the user your server started the verification for, or a person can hand in
 // a result token that someone else earned.
+//
+// It also returns false for a test-key verdict (Test is true): a test
+// session settles at once without checking anyone, yet it carries a gate.
+// Use ProvesAgeAllowingTest only in local development with a test key.
 func (s *SessionResult) ProvesAge(minAge int) bool {
+	return !s.Test && s.provesAgeIgnoringTest(minAge)
+}
+
+// ProvesAgeAllowingTest is ProvesAge that also accepts a test-key verdict.
+//
+// Only for local development, where every session comes from a sk_test_ or
+// ak_test_ key and settles without a real check. Never call it in production
+// code: there a test result must grant nothing. An ID verification still
+// proves no age, test or not.
+func (s *SessionResult) ProvesAgeAllowingTest(minAge int) bool {
+	return s.provesAgeIgnoringTest(minAge)
+}
+
+func (s *SessionResult) provesAgeIgnoringTest(minAge int) bool {
 	if minAge < 1 || !s.IsVerified() {
 		return false
 	}
-	age := s.Checks.Age
-	return age.Performed && age.Passed && age.Gate >= minAge
+	gate := s.Checks.Age.Gate
+	return gate > 0 && gate >= minAge
 }
 
 // Method returns the verification TYPE for this session -- which path

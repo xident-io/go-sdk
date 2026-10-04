@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,14 @@ func randomHex(n int) string {
 
 func main() {
 	apiKey := os.Getenv("XIDENT_SECRET_KEY") // sk_live_, sk_test_, ak_live_ or ak_test_
+	// XIDENT_ALLOW_TEST_RESULTS=1 lets a test-key result count as proof, so
+	// a local run with a sk_test_ key can show a pass. A test session settles
+	// without checking anyone: never set it in production. It is refused
+	// with a live key.
+	allowTestResults := os.Getenv("XIDENT_ALLOW_TEST_RESULTS") == "1"
+	if allowTestResults && !strings.HasPrefix(apiKey, "sk_test_") && !strings.HasPrefix(apiKey, "ak_test_") {
+		log.Fatal("XIDENT_ALLOW_TEST_RESULTS=1 is only for a test key (sk_test_ or ak_test_)")
+	}
 	webhookSecret := os.Getenv("XIDENT_WEBHOOK_SECRET")
 
 	if apiKey == "" || webhookSecret == "" {
@@ -140,7 +149,11 @@ func main() {
 		// Grant access only when the result proves the age THIS site needs
 		// (an ID verification has no age gate and proves no age) AND belongs
 		// to THIS signed-in user.
-		verified := session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID
+		provesAge := session.ProvesAge(requiredMinAge) // refuses a test-key result
+		if allowTestResults {
+			provesAge = session.ProvesAgeAllowingTest(requiredMinAge)
+		}
+		verified := provesAge && session.ExternalUserID == userID
 
 		c.JSON(http.StatusOK, gin.H{"verified": verified})
 	})

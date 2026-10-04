@@ -41,7 +41,9 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 		{"age missing (0)", InitParams{CallbackURL: cb, UserID: "usr_1"}, "INVALID_MIN_AGE"},
 		{"age negative", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: -18}, "INVALID_MIN_AGE"},
 		{"explicit age purpose, age 0", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "age_verification"}, "INVALID_MIN_AGE"},
-		{"unknown purpose is checked as an age verification", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "kyc"}, "INVALID_MIN_AGE"},
+		{"unknown purpose is refused before the age", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "kyc"}, "INVALID_PURPOSE"},
+		{"unknown purpose is refused even with a valid age", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "kyc", MinAge: 18}, "INVALID_PURPOSE"},
+		{"unknown purpose is refused before an invalid age", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "kyc", MinAge: 30}, "INVALID_PURPOSE"},
 		{"age 12 passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 12}, ""},
 		{"age 25 passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 25}, ""},
 		{"age 18 with facial passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 18, VerificationMode: "facial"}, ""},
@@ -115,12 +117,20 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 			if valErr.Code != tt.code {
 				t.Errorf("Code = %q, want %q", valErr.Code, tt.code)
 			}
-			if valErr.Response != nil {
-				t.Errorf("Response = %v, want nil: no request was made", valErr.Response)
+			// Caller code written for API errors reads Response.StatusCode:
+			// a local refusal must not make it dereference nil.
+			if valErr.Response == nil || valErr.Response.StatusCode != http.StatusBadRequest ||
+				valErr.Response.Status != "400 Bad Request" {
+				t.Fatalf("Response = %+v, want a synthetic 400 Bad Request", valErr.Response)
 			}
-			// Error() must not dereference the nil Response.
-			if msg := err.Error(); !strings.Contains(msg, tt.code) || !strings.Contains(msg, "no request was sent") {
-				t.Errorf("Error() = %q, want the code and a note that nothing was sent", msg)
+			if body, _ := io.ReadAll(valErr.Response.Body); len(body) != 0 {
+				t.Errorf("Response body = %q, want empty", body)
+			}
+			if !valErr.Local() || valErr.RequestID != "" {
+				t.Errorf("Local() = %v, RequestID = %q; want true and empty: no request was made", valErr.Local(), valErr.RequestID)
+			}
+			if msg := err.Error(); !strings.Contains(msg, "400 "+tt.code) || !strings.Contains(msg, "no request was sent") {
+				t.Errorf("Error() = %q, want the status, the code and a note that nothing was sent", msg)
 			}
 		})
 	}
@@ -155,6 +165,7 @@ func TestVerification_Init_LocalValidationMessages(t *testing.T) {
 		{InitParams{MinAge: 18}, "user_id is required: pass your own identifier for the person being verified"},
 		{InitParams{UserID: "usr_1", MinAge: 30}, "min_age must be between 12 and 25; it is rounded up to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21). An id_verification takes no min_age."},
 		{InitParams{UserID: "usr_1", Purpose: "id_verification", VerificationMode: "facial"}, "verification_mode facial cannot be combined with purpose id_verification, which always requires a document"},
+		{InitParams{UserID: "usr_1", Purpose: "kyc", MinAge: 18}, "purpose must be 'age_verification' or 'id_verification'"},
 	}
 	for _, tt := range tests {
 		params := tt.params
