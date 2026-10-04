@@ -3,13 +3,14 @@
 // Create a client with your API key, then use the service objects to interact
 // with the API:
 //
-//	client := xident.NewClient("sk_live_xxx")
+//	client := xident.NewClient("sk_live_xxx") // or an agent key, ak_live_xxx
 //
-//	// Start a verification session (needs a server key, sk_ or ak_)
+//	// Start a verification session for the signed-in user. The user id and
+//	// the age come from your server, never from the request.
 //	result, _, err := client.Verification.Init(ctx, &xident.InitParams{
 //	    CallbackURL: "https://example.com/callback",
-//	    UserID:      "user_123", // required: your own id for the person
-//	    MinAge:      18,         // 12 to 25, rounded up to the next band
+//	    UserID:      userID,         // required: your own id for the person
+//	    MinAge:      requiredMinAge, // 12 to 25, rounded up to the next band
 //	})
 //	// Redirect the browser to result.VerifyURL.
 //
@@ -17,7 +18,7 @@
 //	// widget appends the xtk_ result token to your callback URL as ?token=;
 //	// result.Token is the xit_ init token and is not used here.
 //	session, _, err := client.Verification.GetResult(ctx, resultToken)
-//	if session.IsVerified() {
+//	if session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID {
 //	    fmt.Println("User is verified!")
 //	}
 //
@@ -81,7 +82,11 @@ type service struct {
 
 // NewClient creates a new Xident API client.
 //
-// apiKey is your Xident secret API key (sk_live_xxx or sk_test_xxx).
+// apiKey is a Xident server key: a secret key (sk_live_xxx or sk_test_xxx)
+// or an agent key (ak_live_xxx or ak_test_xxx). The API accepts both on
+// POST /verify/v1/init; what else an agent key may call depends on the
+// scopes it was given. A public key (pk_) belongs in the browser and panics
+// here.
 // Pass Option values to customize the client behavior.
 //
 // Example:
@@ -103,10 +108,10 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	}
 
 	if strings.HasPrefix(apiKey, "pk_") {
-		panic("xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*)")
+		panic("xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*) or an agent key (ak_live_* or ak_test_*)")
 	}
-	if !strings.HasPrefix(apiKey, "sk_live_") && !strings.HasPrefix(apiKey, "sk_test_") {
-		panic("xident: invalid API key format. Must start with \"sk_live_\" or \"sk_test_\"")
+	if !hasServerKeyPrefix(apiKey) {
+		panic("xident: invalid API key format. Must start with \"sk_live_\", \"sk_test_\", \"ak_live_\" or \"ak_test_\"")
 	}
 
 	for _, opt := range opts {
@@ -120,6 +125,19 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	c.Blacklist = (*BlacklistService)(&c.common)
 
 	return c
+}
+
+// serverKeyPrefixes are the key kinds the API accepts from a server: secret
+// keys and agent keys, live and test.
+var serverKeyPrefixes = []string{"sk_live_", "sk_test_", "ak_live_", "ak_test_"}
+
+func hasServerKeyPrefix(apiKey string) bool {
+	for _, prefix := range serverKeyPrefixes {
+		if strings.HasPrefix(apiKey, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Version returns the SDK version string.

@@ -72,15 +72,20 @@ import (
     xident "github.com/xident-io/go-sdk/v3"
 )
 
+// requiredMinAge is the age YOUR site needs, set on the server. Never read
+// it from a request.
+const requiredMinAge = 18
+
 func main() {
-    client := xident.NewClient("sk_live_xxx")
+    client := xident.NewClient("sk_live_xxx") // or an agent key, ak_live_xxx
 
     // Step 1: start verification and redirect the browser to the widget.
     http.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
+        userID := signedInUserID(r) // your own session lookup, on the server
         result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
             CallbackURL: "https://yoursite.com/callback", // browser returns here
-            UserID:      "user_123", // required: your own id for the person
-            MinAge:      18,         // 12 to 25, rounded up to the next band
+            UserID:      userID,         // required: your own id for the person
+            MinAge:      requiredMinAge, // 12 to 25, rounded up to the next band
         })
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -92,7 +97,7 @@ func main() {
 
     // Step 2: the widget redirects the browser back here with query params:
     //   ?status=success|failed|canceled&token=xtk_...&user_id=...
-    // Re-verify server-side (NEVER trust the URL params alone).
+    // Decide server-side from the result (NEVER from the URL params).
     http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
         token := r.URL.Query().Get("token") // the RESULT token (xtk_...)
 
@@ -101,16 +106,22 @@ func main() {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
-        if session.IsVerified() {
-            if b := session.AgeBracket(); b != nil {
-                fmt.Fprintf(w, "Verified! Age bracket: %d\n", *b)
-            } else {
-                fmt.Fprintln(w, "Verified!")
-            }
+        // Grant access only when the result proves the age THIS site needs
+        // AND belongs to THIS signed-in user (not to whoever earned the token).
+        if session.ProvesAge(requiredMinAge) && session.ExternalUserID == signedInUserID(r) {
+            fmt.Fprintln(w, "Verified!")
+            return
         }
+        http.Error(w, "Not verified", http.StatusForbidden)
     })
 
     log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// signedInUserID returns the signed-in user's id from your own session
+// (examples/basic has a small one). Never read it from the request.
+func signedInUserID(r *http.Request) string {
+    return mySessions.UserID(r)
 }
 ```
 
@@ -128,7 +139,10 @@ func main() {
    browser GET redirect, **not** a signed webhook.
 5. Your backend reads `token` from the query string and calls
    `GET /verify/v1/result/{token}` (via `GetResult`) to fetch the outcome.
-6. You make the authorization decision based on the verified result.
+6. You decide on the server, from the result: it must pass, prove the age
+   your site needs (`ProvesAge(requiredMinAge)`: `checks.age.gate` at or
+   above your own required age; an ID verification has no gate and proves no
+   age), and belong to the user you started it for (`ExternalUserID`).
 
 > Signed server-to-server webhooks are a **separate, optional** feature — see
 > [Webhooks (optional server-to-server)](#webhooks-optional-server-to-server)
@@ -139,6 +153,8 @@ func main() {
 ### Client
 
 ```go
+// A secret key (sk_live_, sk_test_) or an agent key (ak_live_, ak_test_).
+// A public key (pk_) panics: it is not a server key.
 client := xident.NewClient("sk_live_xxx",
     xident.WithBaseURL("https://api.xident.io"),  // Optional (default)
     xident.WithTimeout(30 * time.Second),          // Optional (default: 30s)
@@ -197,7 +213,7 @@ ends in `+fail`.
 `token` is the **result** token (`xtk_…`) read from the callback redirect's
 `token` query param — not the init token (`xit_…`) returned by `Init`.
 
-Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `AgeBracket()`, `Method()`
+Helpers: `IsVerified()`, `IsFailed()`, `IsPending()`, `IsTerminal()`, `ProvesAge(minAge)`, `AgeBracket()`, `Method()`
 
 ### Webhooks (optional server-to-server)
 
@@ -309,6 +325,8 @@ import "errors"
 var authErr *xident.AuthenticationError
 var notFoundErr *xident.NotFoundError
 var rateLimitErr *xident.RateLimitError
+var validationErr *xident.ValidationError
+var serverErr *xident.ServerError
 
 session, _, err := client.Verification.GetResult(ctx, token)
 if err != nil {
@@ -319,15 +337,19 @@ if err != nil {
         // 404 - Session not found
     case errors.As(err, &rateLimitErr):
         // 429 - Rate limited, retry after rateLimitErr.RetryAfter seconds
-    default:
-        var apiErr *xident.ErrorResponse
-        if errors.As(err, &apiErr) {
-            fmt.Println(apiErr.Code)      // API error code
-            fmt.Println(apiErr.RequestID) // For support tickets
-        }
+    case errors.As(err, &validationErr):
+        // 400 and other 4xx, or a check Init made before sending
+        fmt.Println(validationErr.Code)      // e.g. MISSING_USER_ID, INVALID_MIN_AGE
+        fmt.Println(validationErr.RequestID) // For support tickets (empty if nothing was sent)
+    case errors.As(err, &serverErr):
+        // 5xx after the retries
     }
 }
 ```
+
+Every API error is one of these typed errors. They embed `ErrorResponse` by
+value, so match the typed error (`*xident.ValidationError` and so on), not
+`*xident.ErrorResponse`, with `errors.As`.
 
 Error types: `AuthenticationError` (401/403), `ValidationError` (400/4xx, and the checks `Init` makes before sending), `NotFoundError` (404), `RateLimitError` (429), `ServerError` (5xx).
 
@@ -343,6 +365,8 @@ session.IsFailed()    // true if status == "failed"
 session.IsPending()   // true if status == "pending" or "in_progress"
 session.IsTerminal()  // true if completed, failed, canceled, or claimed
 
+session.ProvesAge(18) // true only if the session passed AND Checks.Age.Gate >= 18
+                       // (false for an id_verification: it has no gate)
 session.AgeBracket()  // *int: 12, 15, 18, 21, or 25 -- nil unless Checks.Age.Passed with a gate
                       // (an id_verification tests no age band, so it is nil there)
 session.Method()      // string: "full" | "age_check" | "xident_id" | "eu_wallet"
@@ -405,8 +429,8 @@ func main() {
     mux.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
         result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
             CallbackURL: "https://example.com/callback",
-            MinAge:      18,
-            UserID:      "user_123",
+            MinAge:      requiredMinAge,      // your own constant, never from the request
+            UserID:      signedInUserID(r),   // your own session, never from the request
         })
         if err != nil {
             http.Error(w, fmt.Sprintf("Failed: %v", err), 500)
@@ -418,28 +442,31 @@ func main() {
     // callback_url: the widget redirects the browser back here with
     //   ?status=success|failed|canceled&token=xtk_...&user_id=...
     mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-        q := r.URL.Query()
-        status := q.Get("status") // "success", "failed", or "canceled"
-        token := q.Get("token")   // the xtk_ result token
-        if status != "success" || token == "" {
-            fmt.Fprintf(w, "Verification not completed (status=%q)\n", status)
+        token := r.URL.Query().Get("token") // the xtk_ result token
+        if token == "" {
+            http.Error(w, "Missing token", 400)
             return
         }
 
-        // Re-verify server-side; never trust the query params alone.
+        // Decide server-side; status and user_id in the URL are only hints.
         session, _, err := client.Verification.GetResult(r.Context(), token)
         if err != nil {
             http.Error(w, fmt.Sprintf("Failed: %v", err), 500)
             return
         }
-        if session.IsVerified() {
+        if session.ProvesAge(requiredMinAge) && session.ExternalUserID == signedInUserID(r) {
             fmt.Fprintln(w, "Age verified!")
+            return
         }
+        http.Error(w, "Not verified", http.StatusForbidden)
     })
 
     log.Fatal(http.ListenAndServe(":8080", mux))
 }
 ```
+
+`signedInUserID` stands for your own session lookup. `examples/basic` shows a
+small server-side session store you can run as is.
 
 See `examples/` for Gin, Echo, and Fiber examples. Each is its own Go module
 (so the SDK stays dependency-free); `cd examples/gin && go run .` to try one.
@@ -449,7 +476,7 @@ See `examples/` for Gin, Echo, and Fiber examples. Each is its own Go module
 - **Server key**: `Init` needs a server key (`sk_*` or `ak_*`); a public key (`pk_*`) gets 403 `SECRET_KEY_REQUIRED`. Never expose a server key in a browser or a mobile app
 - **TLS 1.2+**: Enforced on all API calls
 - **Webhooks**: Always verify signatures (constant-time HMAC comparison)
-- **Verification tokens**: Always re-verify server-side. Never trust URL params alone.
+- **Verification tokens**: Always re-verify server-side. Never trust URL params alone. Check that the result proves the age you need (`ProvesAge`) and that `ExternalUserID` is the user you started it for; take both from your server, never from the request.
 - **Context**: Pass `context.Context` for cancellation and deadlines
 
 ## Testing

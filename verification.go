@@ -145,8 +145,8 @@ const (
 //
 //	result, resp, err := client.Verification.Init(ctx, &xident.InitParams{
 //	    CallbackURL: "https://example.com/xident/callback",
-//	    UserID:      "user_123",
-//	    MinAge:      18,
+//	    UserID:      userID,         // the signed-in user, from your session
+//	    MinAge:      requiredMinAge, // your own constant, never from the request
 //	})
 //	if err != nil {
 //	    log.Fatal(err)
@@ -233,10 +233,10 @@ func (p *InitParams) validate() error {
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	if session.IsVerified() {
-//	    if b := session.AgeBracket(); b != nil {
-//	        fmt.Printf("Verified! Age bracket: %d\n", *b)
-//	    }
+//	// Grant access only when the result proves the age your site needs
+//	// and belongs to the user your server started it for.
+//	if session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID {
+//	    fmt.Println("Verified!")
 //	}
 func (s *VerificationService) GetResult(ctx context.Context, token string) (*SessionResult, *Response, error) {
 	if token == "" {

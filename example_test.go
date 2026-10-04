@@ -41,7 +41,7 @@ func Example() {
 		case "/verify/v1/result/xtk_7c31":
 			fmt.Fprint(w, `{"success":true,
 				"data":{"token":"xtk_7c31","status":"success","verified":true,
-					"verification_type":"full",
+					"verification_type":"full","external_user_id":"usr_1042",
 					"checks":{
 						"liveness":{"performed":true,"passed":true},
 						"age":{"performed":true,"passed":true,"gate":18},
@@ -57,11 +57,16 @@ func Example() {
 	client := xident.NewClient("sk_test_example", xident.WithBaseURL(srv.URL))
 	ctx := context.Background()
 
+	// Both come from your server: the age your site needs, and the
+	// signed-in user from your own session. Never from the request.
+	const requiredMinAge = 18
+	userID := "usr_1042"
+
 	// 1. Start a session and send the browser to the widget.
 	init, _, err := client.Verification.Init(ctx, &xident.InitParams{
 		CallbackURL: "https://example.com/xident/callback",
-		UserID:      "usr_1042", // your own id for the person, required
-		MinAge:      18,
+		UserID:      userID, // your own id for the person, required
+		MinAge:      requiredMinAge,
 	})
 	if err != nil {
 		fmt.Println("init failed:", err)
@@ -78,8 +83,10 @@ func Example() {
 		return
 	}
 
-	// 3. Gate on IsVerified, never on "the flow finished".
-	if session.IsVerified() {
+	// 3. Grant access only when the result proves the age your site needs
+	//    (an ID verification has no age gate and proves no age) and belongs
+	//    to the user you started it for. Never gate on "the flow finished".
+	if session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID {
 		fmt.Println("access granted, verified via", session.Method())
 	} else {
 		fmt.Println("access denied:", session.Reason)
@@ -102,7 +109,7 @@ func Example_callbackHandler() {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":true,
 			"data":{"token":"xtk_7c31","status":"failed","verified":false,
-				"reason":"age_below_threshold",
+				"reason":"age_below_threshold","external_user_id":"usr_1042",
 				"checks":{
 					"liveness":{"performed":true,"passed":true},
 					"age":{"performed":true,"passed":false,"gate":18},
@@ -115,6 +122,11 @@ func Example_callbackHandler() {
 	defer api.Close()
 
 	client := xident.NewClient("sk_test_example", xident.WithBaseURL(api.URL))
+
+	// The age your site needs, and your own session lookup. Both stay on the
+	// server; the callback URL can carry neither.
+	const requiredMinAge = 18
+	signedInUserID := func(r *http.Request) string { return "usr_1042" }
 
 	callback := func(w http.ResponseWriter, r *http.Request) {
 		// The widget appends status, token and (if you sent UserID at init)
@@ -134,7 +146,9 @@ func Example_callbackHandler() {
 			return
 		}
 
-		if session.IsVerified() {
+		// The result must prove the age this site needs AND belong to the
+		// signed-in user, not to whoever earned the pasted token.
+		if session.ProvesAge(requiredMinAge) && session.ExternalUserID == signedInUserID(r) {
 			fmt.Fprintln(w, "access granted")
 			return
 		}
@@ -268,11 +282,11 @@ func ExampleNewClient_invalidKey() {
 		fmt.Println("recovered:", recover())
 	}()
 
-	// A publishable key belongs in the browser SDK, never in a server SDK.
+	// A public key (pk_) is not a server key: the server SDK refuses it.
 	xident.NewClient("pk_live_abc123")
 
 	// Output:
-	// recovered: xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*)
+	// recovered: xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*) or an agent key (ak_live_* or ak_test_*)
 }
 
 // ExampleWithHTTPClient supplies a fully custom *http.Client.
@@ -432,6 +446,32 @@ func ExampleSessionResult_AgeBracket() {
 	// Output:
 	// proven over 18, via full
 	// bracket while pending: <nil>
+}
+
+// ExampleSessionResult_ProvesAge is the age decision a callback makes: the
+// result passed, and the gate it tested reaches the age YOUR site requires.
+func ExampleSessionResult_ProvesAge() {
+	// In your own code these come from Verification.GetResult; they are built
+	// by hand here so the example needs no server.
+	ageResult := &xident.SessionResult{
+		Status: xident.SessionStatusSuccess,
+		Checks: xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 21}},
+	}
+	// An ID verification reads the date of birth but tests no age threshold,
+	// so its result has no gate.
+	idResult := &xident.SessionResult{
+		Status: xident.SessionStatusSuccess,
+		Checks: xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true}},
+	}
+
+	fmt.Println("21+ result, site needs 18:", ageResult.ProvesAge(18))
+	fmt.Println("21+ result, site needs 25:", ageResult.ProvesAge(25))
+	fmt.Println("ID result, site needs 18: ", idResult.ProvesAge(18))
+
+	// Output:
+	// 21+ result, site needs 18: true
+	// 21+ result, site needs 25: false
+	// ID result, site needs 18:  false
 }
 
 // ExampleWebhookService_ConstructEvent verifies an incoming webhook and acts

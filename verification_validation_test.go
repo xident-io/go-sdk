@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,6 +45,8 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 		{"age 12 passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 12}, ""},
 		{"age 25 passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 25}, ""},
 		{"age 18 with facial passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 18, VerificationMode: "facial"}, ""},
+		{"age 21 with document passes", InitParams{CallbackURL: cb, UserID: "usr_1", MinAge: 21, VerificationMode: "document"}, ""},
+		{"explicit age purpose with age 19 passes", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "age_verification", MinAge: 19}, ""},
 
 		{"ID verification with age 18", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "id_verification", MinAge: 18}, "INVALID_MIN_AGE"},
 		{"ID verification with facial", InitParams{CallbackURL: cb, UserID: "usr_1", Purpose: "id_verification", VerificationMode: "facial"}, "INVALID_VERIFICATION_MODE"},
@@ -58,8 +61,15 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 			defer teardown()
 
 			var calls atomic.Int32
+			var gotMethod string
+			var gotBody map[string]any
 			mux.HandleFunc("/"+apiVersion+"/init", func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
+				gotMethod = r.Method
+				raw, _ := io.ReadAll(r.Body)
+				if err := json.Unmarshal(raw, &gotBody); err != nil {
+					t.Errorf("request body is not JSON: %v", err)
+				}
 				_, _ = fmt.Fprint(w, `{"success":true,"data":{"token":"xit_ok","verify_url":"https://verify.xident.io?t=xit_ok"}}`)
 			})
 
@@ -75,6 +85,15 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 				}
 				if got := calls.Load(); got != 1 {
 					t.Errorf("API calls = %d, want 1", got)
+				}
+				// The accepted call must reach POST /init with every setting
+				// intact: a field dropped on the way (a json:"-" tag, a
+				// renamed key) would let the API apply its default instead.
+				if gotMethod != http.MethodPost {
+					t.Errorf("method = %s, want POST", gotMethod)
+				}
+				if want := wantInitBody(tt.params); !reflect.DeepEqual(gotBody, want) {
+					t.Errorf("request body = %v, want %v", gotBody, want)
 				}
 				return
 			}
@@ -105,6 +124,23 @@ func TestVerification_Init_LocalValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// wantInitBody is the JSON body Init must send for p: callback_url and
+// user_id always, and min_age, purpose and verification_mode whenever they
+// are set. Numbers decode as float64.
+func wantInitBody(p InitParams) map[string]any {
+	body := map[string]any{"callback_url": p.CallbackURL, "user_id": p.UserID}
+	if p.MinAge != 0 {
+		body["min_age"] = float64(p.MinAge)
+	}
+	if p.Purpose != "" {
+		body["purpose"] = p.Purpose
+	}
+	if p.VerificationMode != "" {
+		body["verification_mode"] = p.VerificationMode
+	}
+	return body
 }
 
 // TestVerification_Init_LocalValidationMessages pins the messages to the

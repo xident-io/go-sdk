@@ -281,6 +281,34 @@ func (s *SessionResult) AgeBracket() *int {
 	return &gate
 }
 
+// ProvesAge reports whether this result proves that the person is at least
+// minAge years old: the session passed (IsVerified), the age check passed,
+// and the age threshold it tested (Checks.Age.Gate) is minAge or higher.
+//
+// Pass the age YOUR site requires, from your own server config, never a
+// value from the request. Xident enforces the band at or above the age you
+// sent to Init (19 is enforced as 21), so a session started with your
+// required age has a gate of that age or higher and passes.
+//
+// It returns false for:
+//   - a result that did not pass;
+//   - an ID verification: its result carries no gate, because it tested no
+//     age threshold, even when the document's date of birth was read;
+//   - a result whose gate is lower than minAge, for example an 18+ result
+//     shown to a 21+ check;
+//   - minAge below 1: a required age that is not set never counts as proven.
+//
+// It does not check WHO the result is for. Also compare ExternalUserID with
+// the user your server started the verification for, or a person can hand in
+// a result token that someone else earned.
+func (s *SessionResult) ProvesAge(minAge int) bool {
+	if minAge < 1 || !s.IsVerified() {
+		return false
+	}
+	age := s.Checks.Age
+	return age.Performed && age.Passed && age.Gate >= minAge
+}
+
 // Method returns the verification TYPE for this session -- which path
 // produced the verdict ("full" for a
 // document + face match, "age_check" browser-only, "xident_id" reuse,

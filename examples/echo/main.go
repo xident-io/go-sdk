@@ -13,18 +13,70 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	xident "github.com/xident-io/go-sdk/v3"
 )
 
+// requiredMinAge is the age this site needs. It is set here, on the server,
+// and never read from a request: a browser that could send it could also
+// lower it.
+const requiredMinAge = 18
+
+const sessionCookie = "example_session"
+
+// sessionStore stands in for your app's login sessions. It keeps the
+// signed-in user's id on the server, behind an unguessable cookie, so a
+// browser cannot claim to be another user by editing a cookie or the
+// callback URL. In your app, use your real session instead.
+type sessionStore struct {
+	mu    sync.Mutex
+	users map[string]string // session id -> user id
+}
+
+func (s *sessionStore) userID(c echo.Context) (string, bool) {
+	cookie, err := c.Cookie(sessionCookie)
+	if err != nil {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.users[cookie.Value]
+	return id, ok
+}
+
+// signIn creates a demo user and a session for it. Your app does this at
+// login; the example has no login, so every new visitor gets a user.
+func (s *sessionStore) signIn(c echo.Context) string {
+	sessionID, userID := randomHex(32), "user_"+randomHex(8)
+	s.mu.Lock()
+	s.users[sessionID] = userID
+	s.mu.Unlock()
+	c.SetCookie(&http.Cookie{
+		Name: sessionCookie, Value: sessionID, Path: "/",
+		HttpOnly: true, Secure: c.Request().TLS != nil, SameSite: http.SameSiteLaxMode,
+	})
+	return userID
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
 func main() {
-	apiKey := os.Getenv("XIDENT_SECRET_KEY")
+	apiKey := os.Getenv("XIDENT_SECRET_KEY") // sk_live_, sk_test_, ak_live_ or ak_test_
 	webhookSecret := os.Getenv("XIDENT_WEBHOOK_SECRET")
 
 	if apiKey == "" || webhookSecret == "" {
@@ -34,37 +86,46 @@ func main() {
 	client := xident.NewClient(apiKey,
 		xident.WithTimeout(15*time.Second),
 	)
+	sessions := &sessionStore{users: map[string]string{}}
 
 	e := echo.New()
 
-	// Start verification session.
+	// Start verification session for the signed-in user.
 	e.POST("/verify", func(c echo.Context) error {
+		userID, ok := sessions.userID(c)
+		if !ok {
+			userID = sessions.signIn(c)
+		}
+
 		result, _, err := client.Verification.Init(c.Request().Context(), &xident.InitParams{
 			// The browser is redirected back to CallbackURL when the flow ends.
 			CallbackURL: "https://example.com/callback",
-			// UserID is required: your own id for the person being verified,
-			// for example the signed-in user's id. It comes back on the
-			// callback and in the result.
-			UserID: "user_123",
-			// MinAge is 12 to 25; Xident rounds it up to the next of 12, 15,
-			// 18, 21 or 25 (19 is enforced as 21).
-			MinAge: 18,
+			// UserID is required: the signed-in user's id, from the server.
+			// It comes back in the result as ExternalUserID.
+			UserID: userID,
+			// The age this site needs, from the server. Xident rounds it up
+			// to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21).
+			MinAge: requiredMinAge,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
 
-		// result.Token is the init token (xit_) — redirect the browser to VerifyURL.
+		// Send the page only the link. It opens it unchanged, for example
+		// with the browser SDK: Xident.start({ verifyUrl }).
 		return c.JSON(http.StatusOK, map[string]string{
-			"token":      result.Token,
 			"verify_url": result.VerifyURL,
 		})
 	})
 
 	// Callback: the widget redirects the browser here with
 	//   ?status=success|failed|canceled&token=xtk_...&user_id=...
-	// Re-verify server-side; never trust the query params alone.
+	// Decide server-side from the result -- never from the query params.
 	e.GET("/callback", func(c echo.Context) error {
+		userID, ok := sessions.userID(c)
+		if !ok {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Sign in first"})
+		}
 		token := c.QueryParam("token") // the RESULT token (xtk_...)
 
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
@@ -75,18 +136,12 @@ func main() {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"callback_status": c.QueryParam("status"),
-			"verified":        session.IsVerified(),
-			"status":          session.Status,
-			// session.Checks holds the per-check breakdown (liveness, age,
-			// document, face_match); AgeBracket() reads Checks.Age for you.
-			"age_bracket": session.AgeBracket(),
-			// "full" (document + biometric checks ran) or "token" (returning
-			// Xident-ID user) -- session.VerificationType, not an ML method name.
-			"method":   session.Method(),
-			"terminal": session.IsTerminal(),
-		})
+		// Grant access only when the result proves the age THIS site needs
+		// (an ID verification has no age gate and proves no age) AND belongs
+		// to THIS signed-in user.
+		verified := session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID
+
+		return c.JSON(http.StatusOK, map[string]any{"verified": verified})
 	})
 
 	// Webhook handler. OPTIONAL, separate feature -- not part of the core
@@ -103,6 +158,9 @@ func main() {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid signature"})
 		}
 
+		// event.Data is the same tenant result GetResult returns. To grant
+		// access from a webhook, decode it into xident.SessionResult and apply
+		// the same checks as the callback.
 		switch event.Type {
 		// "session.completed" is the pre-July-2026 name; an endpoint
 		// registered before then still receives it.
@@ -113,29 +171,6 @@ func main() {
 		}
 
 		return c.NoContent(http.StatusOK)
-	})
-
-	// Check verification result.
-	e.GET("/result/:token", func(c echo.Context) error {
-		token := c.Param("token")
-
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
-
-		session, _, err := client.Verification.GetResult(ctx, token)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"verified": session.IsVerified(),
-			"status":   session.Status,
-			// AgeBracket() reads session.Checks.Age; Method() returns
-			// session.VerificationType ("full" | "age_check" | "xident_id" | "eu_wallet").
-			"age_bracket": session.AgeBracket(),
-			"method":      session.Method(),
-			"terminal":    session.IsTerminal(),
-		})
 	})
 
 	e.Logger.Fatal(e.Start(":8080"))
