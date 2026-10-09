@@ -333,7 +333,7 @@ func TestSessionResult_AgeBracket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &SessionResult{Status: tt.status, Test: tt.test, Checks: Checks{Age: tt.check}}
+			s := &SessionResult{Status: tt.status, Verified: tt.status == SessionStatusSuccess, Test: tt.test, Checks: Checks{Age: tt.check}}
 			got := s.AgeBracket()
 
 			if tt.want == nil {
@@ -408,7 +408,7 @@ func TestSessionResult_AgeBracket_Goldens(t *testing.T) {
 // the pointer AgeBracket returns and corrupting the SessionResult it came
 // from -- the two must not alias the same int.
 func TestSessionResult_AgeBracket_ReturnsACopy(t *testing.T) {
-	s := &SessionResult{Status: SessionStatusSuccess, Checks: Checks{Age: AgeCheck{Performed: true, Passed: true, Gate: 18}}}
+	s := &SessionResult{Status: SessionStatusSuccess, Verified: true, Checks: Checks{Age: AgeCheck{Performed: true, Passed: true, Gate: 18}}}
 
 	got := s.AgeBracket()
 	if got == nil {

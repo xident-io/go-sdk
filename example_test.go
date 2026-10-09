@@ -471,6 +471,7 @@ func ExampleSessionResult_AgeBracket() {
 	// built by hand here so the example needs no server.
 	session := &xident.SessionResult{
 		Status:           xident.SessionStatusSuccess,
+		Verified:         true,
 		VerificationType: "full",
 		Checks: xident.Checks{
 			Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 18},
@@ -498,19 +499,22 @@ func ExampleSessionResult_ProvesAge() {
 	// In your own code these come from Verification.GetResult; they are built
 	// by hand here so the example needs no server.
 	ageResult := &xident.SessionResult{
-		Status: xident.SessionStatusSuccess,
-		Checks: xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 21}},
+		Status:   xident.SessionStatusSuccess,
+		Verified: true,
+		Checks:   xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 21}},
 	}
 	// An ID verification reads the date of birth but tests no age threshold,
 	// so its result has no gate.
 	idResult := &xident.SessionResult{
-		Status: xident.SessionStatusSuccess,
-		Checks: xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true}},
+		Status:   xident.SessionStatusSuccess,
+		Verified: true,
+		Checks:   xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true}},
 	}
 	// A returning user who reused the age on their Xident ID: the session
 	// passed at gate 21 without capturing new age evidence.
 	reuseResult := &xident.SessionResult{
 		Status:           xident.SessionStatusSuccess,
+		Verified:         true,
 		VerificationType: "xident_id",
 		Checks:           xident.Checks{Age: xident.AgeCheck{Gate: 21}},
 	}

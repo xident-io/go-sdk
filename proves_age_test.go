@@ -184,6 +184,44 @@ func TestSessionResult_ProvesAge_NeedsEveryPart(t *testing.T) {
 	}
 }
 
+// TestSessionResult_ProvesAge_NeedsVerifiedTrue: a result whose status says
+// success but whose verified field is false or missing proves no age and
+// reports no bracket, with or without the test opt-in.
+func TestSessionResult_ProvesAge_NeedsVerifiedTrue(t *testing.T) {
+	docs := map[string]string{
+		"verified false":  `{"status":"success","verified":false,"checks":{"age":{"gate":21}}}`,
+		"verified absent": `{"status":"success","checks":{"age":{"gate":21}}}`,
+		"verified null":   `{"status":"success","verified":null,"checks":{"age":{"gate":21}}}`,
+	}
+	for name, doc := range docs {
+		t.Run(name, func(t *testing.T) {
+			var s SessionResult
+			if err := json.Unmarshal([]byte(doc), &s); err != nil {
+				t.Fatal(err)
+			}
+			if s.ProvesAge(21) || s.ProvesAge(18) {
+				t.Error("ProvesAge = true, want false")
+			}
+			if s.ProvesAgeAllowingTest(21) {
+				t.Error("ProvesAgeAllowingTest(21) = true, want false")
+			}
+			if b := s.AgeBracket(); b != nil {
+				t.Errorf("AgeBracket() = %d, want nil", *b)
+			}
+			if b := s.AgeBracketAllowingTest(); b != nil {
+				t.Errorf("AgeBracketAllowingTest() = %d, want nil", *b)
+			}
+		})
+	}
+	var ok SessionResult
+	if err := json.Unmarshal([]byte(`{"status":"success","verified":true,"checks":{"age":{"gate":21}}}`), &ok); err != nil {
+		t.Fatal(err)
+	}
+	if !ok.ProvesAge(21) {
+		t.Error("control: verified true with gate 21 must prove 21")
+	}
+}
+
 // TestSessionResult_ProvesAge_IgnoresAgeEvidenceFlags pins that the age
 // check's own performed and passed flags do not decide. Only the verdict and
 // the gate do: a Xident ID reuse has neither flag set, and a failed session

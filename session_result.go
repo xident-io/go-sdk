@@ -301,7 +301,7 @@ func (s *SessionResult) AgeBracketAllowingTest() *int {
 }
 
 func (s *SessionResult) ageBracketIgnoringTest() *int {
-	if !s.IsVerified() || s.Checks.Age.Gate <= 0 {
+	if !s.passedWithVerdict() || s.Checks.Age.Gate <= 0 {
 		return nil
 	}
 	gate := s.Checks.Age.Gate
@@ -309,7 +309,8 @@ func (s *SessionResult) ageBracketIgnoringTest() *int {
 }
 
 // ProvesAge reports whether this result proves that the person is at least
-// minAge years old: the session passed (IsVerified) and the age threshold it
+// minAge years old: the session passed (IsVerified, and the Verified field
+// is exactly true; a result with Verified false or missing proves nothing) and the age threshold it
 // was decided at (Checks.Age.Gate) is present and is minAge or higher.
 //
 // It does not look at Checks.Age.Performed or Checks.Age.Passed, on purpose.
@@ -353,11 +354,20 @@ func (s *SessionResult) ProvesAgeAllowingTest(minAge int) bool {
 }
 
 func (s *SessionResult) provesAgeIgnoringTest(minAge int) bool {
-	if minAge < 1 || !s.IsVerified() {
+	if minAge < 1 || !s.passedWithVerdict() {
 		return false
 	}
 	gate := s.Checks.Age.Gate
 	return gate > 0 && gate >= minAge
+}
+
+// passedWithVerdict is the verdict test every age-proof helper uses: the
+// status is success AND the decoded Verified field is true. IsVerified()
+// alone reads only the status, so a payload with status success and
+// "verified": false (or no verified key at all, which decodes to false)
+// must not prove an age. IsVerified() itself is unchanged for other callers.
+func (s *SessionResult) passedWithVerdict() bool {
+	return s.IsVerified() && s.Verified
 }
 
 // Method returns the verification TYPE for this session -- which path
