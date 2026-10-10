@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	xident "github.com/xident-io/go-sdk/v3"
@@ -41,7 +42,7 @@ func Example() {
 		case "/verify/v1/result/xtk_7c31":
 			fmt.Fprint(w, `{"success":true,
 				"data":{"token":"xtk_7c31","status":"success","verified":true,
-					"verification_type":"full",
+					"verification_type":"full","external_user_id":"usr_1042",
 					"checks":{
 						"liveness":{"performed":true,"passed":true},
 						"age":{"performed":true,"passed":true,"gate":18},
@@ -50,6 +51,19 @@ func Example() {
 					},
 					"created_at":"2026-08-02T10:00:00Z"},
 				"meta":{"request_id":"req_02"}}`)
+		case "/verify/v1/result/xtk_b8e0":
+			// A real success, but somebody else's: usr_2077 earned it.
+			_, _ = fmt.Fprint(w, `{"success":true,
+				"data":{"token":"xtk_b8e0","status":"success","verified":true,
+					"verification_type":"full","external_user_id":"usr_2077",
+					"checks":{
+						"liveness":{"performed":true,"passed":true},
+						"age":{"performed":true,"passed":true,"gate":18},
+						"document":{"performed":false,"passed":false},
+						"face_match":{"performed":false,"passed":false}
+					},
+					"created_at":"2026-08-02T10:01:00Z"},
+				"meta":{"request_id":"req_03"}}`)
 		}
 	}))
 	defer srv.Close()
@@ -57,10 +71,16 @@ func Example() {
 	client := xident.NewClient("sk_test_example", xident.WithBaseURL(srv.URL))
 	ctx := context.Background()
 
+	// Both come from your server: the age your site needs, and the
+	// signed-in user from your own session. Never from the request.
+	const requiredMinAge = 18
+	userID := "usr_1042"
+
 	// 1. Start a session and send the browser to the widget.
 	init, _, err := client.Verification.Init(ctx, &xident.InitParams{
 		CallbackURL: "https://example.com/xident/callback",
-		MinAge:      18,
+		UserID:      userID, // your own id for the person, required
+		MinAge:      requiredMinAge,
 	})
 	if err != nil {
 		fmt.Println("init failed:", err)
@@ -71,49 +91,79 @@ func Example() {
 	// 2. The widget redirects back to CallbackURL with ?status=&token=.
 	//    Those query params are unsigned, so they are a hint and not proof --
 	//    the trustworthy step is looking the xtk_ token up from your server.
-	session, _, err := client.Verification.GetResult(ctx, "xtk_7c31")
-	if err != nil {
-		fmt.Println("result lookup failed:", err)
-		return
-	}
+	//    The second token is a success that another user earned, pasted into
+	//    this user's callback: it must not grant this user anything.
+	for _, token := range []string{"xtk_7c31", "xtk_b8e0"} {
+		session, _, err := client.Verification.GetResult(ctx, token)
+		if err != nil {
+			fmt.Println("result lookup failed:", err)
+			return
+		}
 
-	// 3. Gate on IsVerified, never on "the flow finished".
-	if session.IsVerified() {
-		fmt.Println("access granted, verified via", session.Method())
-	} else {
-		fmt.Println("access denied:", session.Reason)
+		// 3. Grant access only when the result proves the age your site
+		//    needs (an ID verification has no age gate and proves no age)
+		//    and belongs to the user you started it for. Never gate on
+		//    "the flow finished" or on IsVerified alone.
+		if session.ProvesAge(requiredMinAge) && session.ExternalUserID == userID {
+			fmt.Println(token, "access granted, verified via", session.Method())
+		} else {
+			fmt.Println(token, "access denied")
+		}
 	}
 
 	// Output:
 	// redirect the user to: https://verify.xident.io/s/xit_9f2a
-	// access granted, verified via full
+	// xtk_7c31 access granted, verified via full
+	// xtk_b8e0 access denied
 }
 
 // Example_callbackHandler is the http.Handler that receives the browser
 // redirect at the end of a verification flow.
 //
-// The point it exists to make: the ?status= param says "failed" here and the
-// handler still ignores it, because anyone can type that URL. Only GetResult
-// is authoritative.
+// The points it exists to make: the ?status= param is ignored, because anyone
+// can type that URL; only GetResult is authoritative. And a success is not
+// enough: the result must belong to the signed-in user and prove the age
+// this site requires. Each token below is a different case the handler sees.
 func Example_callbackHandler() {
 	// Stand-in for the Xident API. Delete it and the WithBaseURL option in
-	// your own code.
+	// your own code. Each token is one result the API can return.
+	results := map[string]string{
+		// A returning user reused the age proven on their Xident ID. This
+		// session captured no new age evidence, so checks.age.performed and
+		// passed are false; the verdict and the gate are what count.
+		"xtk_reuse": `"status":"success","verified":true,"verification_type":"xident_id",
+			"reason":"xident_id_reused","external_user_id":"usr_1042",
+			"checks":{"age":{"performed":false,"passed":false,"gate":21}}`,
+		// A document verification that passed at 18+, below this site's 21.
+		"xtk_gate18": `"status":"success","verified":true,"verification_type":"full",
+			"external_user_id":"usr_1042",
+			"checks":{"age":{"performed":true,"passed":true,"gate":18}}`,
+		// An ID verification: it passed, but tested no age, so it has no gate.
+		"xtk_id_only": `"status":"success","verified":true,"verification_type":"full",
+			"external_user_id":"usr_1042",
+			"checks":{"age":{"performed":true,"passed":true}}`,
+		// A 21+ success that another user earned.
+		"xtk_other_user": `"status":"success","verified":true,"verification_type":"full",
+			"external_user_id":"usr_2077",
+			"checks":{"age":{"performed":true,"passed":true,"gate":21}}`,
+		// A failed session, even though the callback URL says success.
+		"xtk_failed": `"status":"failed","verified":false,"reason":"age_below_threshold",
+			"external_user_id":"usr_1042",
+			"checks":{"age":{"performed":true,"passed":false,"gate":21}}`,
+	}
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"success":true,
-			"data":{"token":"xtk_7c31","status":"failed","verified":false,
-				"reason":"age_below_threshold",
-				"checks":{
-					"liveness":{"performed":true,"passed":true},
-					"age":{"performed":true,"passed":false,"gate":18},
-					"document":{"performed":false,"passed":false},
-					"face_match":{"performed":false,"passed":false}
-				},
-				"created_at":"2026-08-02T10:00:00Z"},
-			"meta":{"request_id":"req_03"}}`)
+		token := strings.TrimPrefix(r.URL.Path, "/verify/v1/result/")
+		_, _ = fmt.Fprintf(w, `{"success":true,"data":{"token":%q,%s,"created_at":"2026-08-02T10:00:00Z"},
+			"meta":{"request_id":"req_03"}}`, token, results[token])
 	}))
 	defer api.Close()
 
 	client := xident.NewClient("sk_test_example", xident.WithBaseURL(api.URL))
+
+	// The age your site needs, and your own session lookup. Both stay on the
+	// server; the callback URL can carry neither.
+	const requiredMinAge = 21
+	signedInUserID := func(r *http.Request) string { return "usr_1042" }
 
 	callback := func(w http.ResponseWriter, r *http.Request) {
 		// The widget appends status, token and (if you sent UserID at init)
@@ -133,21 +183,30 @@ func Example_callbackHandler() {
 			return
 		}
 
-		if session.IsVerified() {
+		// The result must prove the age this site needs AND belong to the
+		// signed-in user, not to whoever earned the pasted token.
+		if session.ProvesAge(requiredMinAge) && session.ExternalUserID == signedInUserID(r) {
 			fmt.Fprintln(w, "access granted")
 			return
 		}
-		fmt.Fprintln(w, "access denied:", session.Reason)
+		_, _ = fmt.Fprintln(w, "access denied")
 	}
 
-	// Drive the handler the way the returning browser would.
-	req := httptest.NewRequest(http.MethodGet, "/xident/callback?status=failed&token=xtk_7c31", nil)
-	rec := httptest.NewRecorder()
-	callback(rec, req)
-	fmt.Print(rec.Body.String())
+	// Drive the handler the way the returning browser would. Every callback
+	// URL claims status=success; the handler never reads it.
+	for _, token := range []string{"xtk_reuse", "xtk_gate18", "xtk_id_only", "xtk_other_user", "xtk_failed"} {
+		req := httptest.NewRequest(http.MethodGet, "/xident/callback?status=success&token="+token, nil)
+		rec := httptest.NewRecorder()
+		callback(rec, req)
+		fmt.Print(token, ": ", rec.Body.String())
+	}
 
 	// Output:
-	// access denied: age_below_threshold
+	// xtk_reuse: access granted
+	// xtk_gate18: access denied
+	// xtk_id_only: access denied
+	// xtk_other_user: access denied
+	// xtk_failed: access denied
 }
 
 // Example_errorHandling shows how a caller tells the API error types apart.
@@ -267,11 +326,11 @@ func ExampleNewClient_invalidKey() {
 		fmt.Println("recovered:", recover())
 	}()
 
-	// A publishable key belongs in the browser SDK, never in a server SDK.
+	// A public key (pk_) is not a server key: the server SDK refuses it.
 	xident.NewClient("pk_live_abc123")
 
 	// Output:
-	// recovered: xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*)
+	// recovered: xident: public keys (pk_*) cannot be used with the server SDK. Use your secret key (sk_live_* or sk_test_*) or an agent key (ak_live_* or ak_test_*)
 }
 
 // ExampleWithHTTPClient supplies a fully custom *http.Client.
@@ -319,12 +378,14 @@ func ExampleVerificationService_Init() {
 		// Required. https only, except http://localhost while developing.
 		CallbackURL: "https://example.com/xident/callback",
 
-		// The threshold to prove. Trained models cover 12, 15, 18, 21 and 25;
-		// any other value falls back to document verification.
+		// Required for an age verification: 12 to 25. Xident rounds it up to
+		// the next of 12, 15, 18, 21 or 25, so 19 is enforced as 21.
 		MinAge: 18,
 
-		// Optional. UserID is echoed back on the callback as ?user_id=.
-		UserID:   "usr_1042",
+		// Required. Your own id for the person; it comes back on the
+		// callback as ?user_id= and in the result.
+		UserID: "usr_1042",
+
 		Locale:   "de",
 		Theme:    "system",
 		Metadata: "order_88231", // returned verbatim on the session result
@@ -410,6 +471,7 @@ func ExampleSessionResult_AgeBracket() {
 	// built by hand here so the example needs no server.
 	session := &xident.SessionResult{
 		Status:           xident.SessionStatusSuccess,
+		Verified:         true,
 		VerificationType: "full",
 		Checks: xident.Checks{
 			Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 18},
@@ -431,46 +493,124 @@ func ExampleSessionResult_AgeBracket() {
 	// bracket while pending: <nil>
 }
 
-// ExampleWebhookService_ConstructEvent verifies an incoming webhook and acts
-// on it. This is the signed, trustworthy channel -- unlike the browser
-// callback, which carries no signature.
+// ExampleSessionResult_ProvesAge is the age decision a callback makes: the
+// result passed, and the gate it tested reaches the age YOUR site requires.
+func ExampleSessionResult_ProvesAge() {
+	// In your own code these come from Verification.GetResult; they are built
+	// by hand here so the example needs no server.
+	ageResult := &xident.SessionResult{
+		Status:   xident.SessionStatusSuccess,
+		Verified: true,
+		Checks:   xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true, Gate: 21}},
+	}
+	// An ID verification reads the date of birth but tests no age threshold,
+	// so its result has no gate.
+	idResult := &xident.SessionResult{
+		Status:   xident.SessionStatusSuccess,
+		Verified: true,
+		Checks:   xident.Checks{Age: xident.AgeCheck{Performed: true, Passed: true}},
+	}
+	// A returning user who reused the age on their Xident ID: the session
+	// passed at gate 21 without capturing new age evidence.
+	reuseResult := &xident.SessionResult{
+		Status:           xident.SessionStatusSuccess,
+		Verified:         true,
+		VerificationType: "xident_id",
+		Checks:           xident.Checks{Age: xident.AgeCheck{Gate: 21}},
+	}
+
+	fmt.Println("21+ result, site needs 18:  ", ageResult.ProvesAge(18))
+	fmt.Println("21+ result, site needs 25:  ", ageResult.ProvesAge(25))
+	fmt.Println("ID result, site needs 18:   ", idResult.ProvesAge(18))
+	fmt.Println("reuse result, site needs 21:", reuseResult.ProvesAge(21))
+
+	// Output:
+	// 21+ result, site needs 18:   true
+	// 21+ result, site needs 25:   false
+	// ID result, site needs 18:    false
+	// reuse result, site needs 21: true
+}
+
+// ExampleWebhookService_ConstructEvent verifies incoming webhooks and acts
+// on them. This is the signed, trustworthy channel -- unlike the browser
+// callback, which carries no signature. Its data is the same result
+// GetResult returns, so the same decision applies.
 func ExampleWebhookService_ConstructEvent() {
 	const secret = "whsec_example" // from the dashboard; treat as a credential
 
-	payload := []byte(`{"type":"session.success","id":"evt_5512","data":{"session_id":"ses_42","user_id":"usr_1042"}}`)
+	// Your server's own rules: the age this site requires, and the users it
+	// started a verification for (in your app, a lookup in your database).
+	const requiredMinAge = 18
+	startedFor := map[string]bool{"usr_1042": true}
 
-	// ---- Xident's side, reproduced only so the example runs offline. ----
-	// Your server never builds a signature. It arrives in the
-	// X-Xident-Signature header as "t=<unix>,v1=<hex>", where the HMAC-SHA256
-	// is taken over "<t>.<raw request body>".
-	ts := time.Now().Unix()
-	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "%d.%s", ts, payload)
-	signature := fmt.Sprintf("t=%d,v1=%s", ts, hex.EncodeToString(mac.Sum(nil)))
-	// ---- end of Xident's side ----
+	// Two session.success webhooks, in the shape the API sends: data is the
+	// tenant result, with the user in external_user_id and nested checks.
+	payloads := [][]byte{
+		[]byte(`{"id":"evt_5512","type":"session.success","api_version":"2026-08-13","created":1785751350,
+			"data":{"token":"xtk_7c31","status":"success","verified":true,"verification_type":"full",
+				"external_user_id":"usr_1042",
+				"checks":{"liveness":{"performed":true,"passed":true},
+					"age":{"performed":true,"passed":true,"gate":21},
+					"document":{"performed":true,"passed":true,"document_type":"passport","country":"DE"},
+					"face_match":{"performed":true,"passed":true}},
+				"created_at":"2026-08-03T10:00:00Z"}}`),
+		// An ID verification: a success, but it tested no age (no gate).
+		[]byte(`{"id":"evt_5513","type":"session.success","api_version":"2026-08-13","created":1785751360,
+			"data":{"token":"xtk_7c32","status":"success","verified":true,"verification_type":"full",
+				"external_user_id":"usr_1042",
+				"checks":{"liveness":{"performed":true,"passed":true},
+					"age":{"performed":true,"passed":true},
+					"document":{"performed":true,"passed":true,"document_type":"passport","country":"DE"},
+					"face_match":{"performed":true,"passed":true}},
+				"created_at":"2026-08-03T10:01:00Z"}}`),
+	}
 
 	client := xident.NewClient("sk_test_example")
 
-	event, err := client.Webhooks.ConstructEvent(payload, signature, secret)
-	if err != nil {
-		// A bad signature is not retryable. Answer 400 and stop.
-		fmt.Println("rejected:", err)
-		return
-	}
+	for _, payload := range payloads {
+		// ---- Xident's side, reproduced only so the example runs offline. ----
+		// Your server never builds a signature. It arrives in the
+		// X-Xident-Signature header as "t=<unix>,v1=<hex>", where the
+		// HMAC-SHA256 is taken over "<t>.<raw request body>".
+		ts := time.Now().Unix()
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = fmt.Fprintf(mac, "%d.%s", ts, payload)
+		signature := fmt.Sprintf("t=%d,v1=%s", ts, hex.EncodeToString(mac.Sum(nil)))
+		// ---- end of Xident's side ----
 
-	switch event.Type {
-	case "session.success", "session.completed":
-		// "session.completed" is the pre-July-2026 name for the same event.
-		// Endpoints registered before the rename still receive it.
-		fmt.Println("grant access to", event.Data["user_id"])
-	case "session.failed":
-		fmt.Println("deny access")
-	default:
-		fmt.Println("ignoring event type", event.Type)
+		event, err := client.Webhooks.ConstructEvent(payload, signature, secret)
+		if err != nil {
+			// A bad signature is not retryable. Answer 400 and stop.
+			fmt.Println("rejected:", err)
+			return
+		}
+
+		switch event.Type {
+		case "session.success", "session.completed":
+			// "session.completed" is the pre-July-2026 name for the same
+			// event. Endpoints registered before the rename still receive it.
+			result, err := event.SessionResult()
+			if err != nil {
+				fmt.Println("unreadable result:", err)
+				continue
+			}
+			// A success is not enough. Grant only when the result proves the
+			// age this site requires and is for a user this server started.
+			if result.ProvesAge(requiredMinAge) && startedFor[result.ExternalUserID] {
+				fmt.Println(event.ID, "grant access to", result.ExternalUserID)
+			} else {
+				fmt.Println(event.ID, "no age proven for", result.ExternalUserID)
+			}
+		case "session.failed":
+			fmt.Println(event.ID, "deny access")
+		default:
+			fmt.Println("ignoring event type", event.Type)
+		}
 	}
 
 	// Output:
-	// grant access to usr_1042
+	// evt_5512 grant access to usr_1042
+	// evt_5513 no age proven for usr_1042
 }
 
 // ExampleWebhookService_VerifySignature checks a signature without parsing

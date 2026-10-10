@@ -29,6 +29,9 @@ func TestVerification_Init(t *testing.T) {
 		if int(params["min_age"].(float64)) != 18 {
 			t.Errorf("min_age = %v, want 18", params["min_age"])
 		}
+		if params["user_id"] != "usr_123" {
+			t.Errorf("user_id = %v, want %q", params["user_id"], "usr_123")
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{
@@ -43,6 +46,7 @@ func TestVerification_Init(t *testing.T) {
 
 	result, resp, err := client.Verification.Init(context.Background(), &InitParams{
 		CallbackURL: "https://example.com/cb",
+		UserID:      "usr_123",
 		MinAge:      18,
 	})
 	if err != nil {
@@ -76,7 +80,7 @@ func TestVerification_Init_AllParams(t *testing.T) {
 			"user_id":      "usr_456",
 			"theme":        "system",
 			"locale":       "de",
-			"purpose":      "id_verification",
+			"purpose":      "age_verification",
 			"metadata":     `{"plan":"pro"}`,
 		}
 
@@ -97,7 +101,7 @@ func TestVerification_Init_AllParams(t *testing.T) {
 		UserID:      "usr_456",
 		Theme:       "system",
 		Locale:      "de",
-		Purpose:     "id_verification",
+		Purpose:     "age_verification",
 		Metadata:    `{"plan":"pro"}`,
 	})
 	if err != nil {
@@ -117,7 +121,7 @@ func TestVerification_Init_MinimalParams(t *testing.T) {
 		if params["callback_url"] != "https://example.com/cb" {
 			t.Errorf("callback_url = %v", params["callback_url"])
 		}
-		// Optional fields should be omitted when zero.
+		// An ID verification takes no min_age; the zero value is omitted.
 		if _, ok := params["min_age"]; ok {
 			t.Error("min_age should not be present when zero")
 		}
@@ -127,6 +131,8 @@ func TestVerification_Init_MinimalParams(t *testing.T) {
 
 	result, _, err := client.Verification.Init(context.Background(), &InitParams{
 		CallbackURL: "https://example.com/cb",
+		UserID:      "usr_1",
+		Purpose:     "id_verification",
 	})
 	if err != nil {
 		t.Fatalf("Init() error: %v", err)
@@ -158,7 +164,9 @@ func TestVerification_Init_ValidationError(t *testing.T) {
 		}`)
 	})
 
-	_, _, err := client.Verification.Init(context.Background(), &InitParams{})
+	// UserID and MinAge pass the SDK's own checks, so the request reaches
+	// the API, which refuses the missing callback_url.
+	_, _, err := client.Verification.Init(context.Background(), &InitParams{UserID: "usr_1", MinAge: 18})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -169,6 +177,9 @@ func TestVerification_Init_ValidationError(t *testing.T) {
 	}
 	if valErr.Code != "MISSING_CALLBACK_URL" {
 		t.Errorf("Code = %q, want %q", valErr.Code, "MISSING_CALLBACK_URL")
+	}
+	if valErr.Response == nil || valErr.Response.StatusCode != http.StatusBadRequest {
+		t.Errorf("Response = %v, want the API's 400 response", valErr.Response)
 	}
 }
 
@@ -186,6 +197,8 @@ func TestVerification_Init_AuthError(t *testing.T) {
 
 	_, _, err := client.Verification.Init(context.Background(), &InitParams{
 		CallbackURL: "https://example.com/cb",
+		UserID:      "usr_1",
+		MinAge:      18,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -423,6 +436,7 @@ func TestVerification_Init_Expected(t *testing.T) {
 
 	_, _, err := client.Verification.Init(context.Background(), &InitParams{
 		CallbackURL: "https://example.com/cb",
+		UserID:      "usr_1",
 		Purpose:     "id_verification",
 		Expected: &ExpectedIdentity{
 			FirstName:   "Jane",
@@ -453,8 +467,7 @@ func TestVerification_Init_OmitsExpectedWhenUnset(t *testing.T) {
 		fmt.Fprint(w, `{"success":true,"data":{"token":"xit_plain","verify_url":"https://v.io?t=xit_plain"}}`)
 	})
 
-	if _, _, err := client.Verification.Init(context.Background(), &InitParams{CallbackURL: "https://example.com/cb", MinAge: 18}); err != nil {
+	if _, _, err := client.Verification.Init(context.Background(), &InitParams{CallbackURL: "https://example.com/cb", UserID: "usr_1", MinAge: 18}); err != nil {
 		t.Fatalf("Init() error: %v", err)
 	}
 }
-

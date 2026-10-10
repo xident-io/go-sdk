@@ -1,6 +1,8 @@
 package xident
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -133,6 +135,78 @@ func TestNewClient_AcceptsLiveKey(t *testing.T) {
 	c := NewClient("sk_live_abc123")
 	if c.apiKey != "sk_live_abc123" {
 		t.Errorf("apiKey = %q, want %q", c.apiKey, "sk_live_abc123")
+	}
+}
+
+// TestNewClient_AcceptsAgentKeys pins that an agent key builds a client.
+// The API accepts ak_live_ and ak_test_ on POST /verify/v1/init, and the
+// constructor used to panic on them, so an agent integration could not make
+// a single request.
+//
+// Mutation caught: dropping either ak_ prefix from serverKeyPrefixes.
+func TestNewClient_AcceptsAgentKeys(t *testing.T) {
+	for _, key := range []string{"ak_live_abc123", "ak_test_abc123"} {
+		t.Run(key, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("unexpected panic for %s: %v", key, r)
+				}
+			}()
+			c := NewClient(key)
+			if c.apiKey != key {
+				t.Errorf("apiKey = %q, want %q", c.apiKey, key)
+			}
+		})
+	}
+}
+
+// TestNewClient_RejectsOtherPrefixes pins that only the four server key
+// kinds are accepted: a near miss such as "ak_" without a mode, "sk_" alone
+// or a webhook secret still panics.
+func TestNewClient_RejectsOtherPrefixes(t *testing.T) {
+	for _, key := range []string{"ak_abc", "sk_abc", "ak_prod_abc", "whsec_abc", "xat_abc", ""} {
+		t.Run(key, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("expected panic for %q, got none", key)
+				}
+				if msg, ok := r.(string); !ok || !strings.Contains(msg, "ak_live_") {
+					t.Errorf("panic message = %v, want it to list the accepted prefixes", r)
+				}
+			}()
+			NewClient(key)
+		})
+	}
+}
+
+// TestVerification_Init_WithAgentKey checks that a client built from an
+// agent key sends that key and reaches the API.
+func TestVerification_Init_WithAgentKey(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var gotKey string
+	mux.HandleFunc("/"+apiVersion+"/init", func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("X-API-Key")
+		_, _ = fmt.Fprint(w, `{"success":true,"data":{"token":"xit_ak","verify_url":"https://verify.xident.io?t=xit_ak"}}`)
+	})
+
+	client := NewClient("ak_test_agent", WithBaseURL(server.URL), WithMaxRetries(0))
+	result, _, err := client.Verification.Init(context.Background(), &InitParams{
+		CallbackURL: "https://example.com/cb",
+		UserID:      "usr_1",
+		MinAge:      18,
+	})
+	if err != nil {
+		t.Fatalf("Init() error: %v", err)
+	}
+	if result.Token != "xit_ak" {
+		t.Errorf("Token = %q, want xit_ak", result.Token)
+	}
+	if gotKey != "ak_test_agent" {
+		t.Errorf("X-API-Key = %q, want the agent key", gotKey)
 	}
 }
 

@@ -45,6 +45,26 @@ type WebhookEvent struct {
 	Created int64 `json:"created,omitempty"`
 }
 
+// SessionResult decodes Data into a SessionResult.
+//
+// The data of every session.* and review.* event is the same tenant result
+// that Verification.GetResult returns, so the same decision applies: grant
+// access only when ProvesAge(requiredMinAge) holds and ExternalUserID is a
+// user your server started a verification for.
+//
+// It returns an error when Data cannot be read as a result.
+func (e *WebhookEvent) SessionResult() (*SessionResult, error) {
+	raw, err := json.Marshal(e.Data)
+	if err != nil {
+		return nil, fmt.Errorf("xident: webhook data is not JSON: %w", err)
+	}
+	var result SessionResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("xident: webhook data is not a session result: %w", err)
+	}
+	return &result, nil
+}
+
 // DefaultWebhookTolerance is the default maximum age for webhook signatures
 // (5 minutes). Signatures older than this are rejected as potential replays.
 const DefaultWebhookTolerance = 5 * time.Minute
@@ -66,11 +86,19 @@ const DefaultWebhookTolerance = 5 * time.Minute
 //	    http.Error(w, "Invalid signature", 400)
 //	    return
 //	}
-//	switch event.Type {
-//	case "session.success":
-//	    // Grant access
-//	case "session.failed":
-//	    // Handle failure
+//	if event.Type == "session.success" {
+//	    result, err := event.SessionResult()
+//	    if err != nil {
+//	        http.Error(w, "Invalid payload", 400)
+//	        return
+//	    }
+//	    // Grant only when the result proves the age YOUR site requires
+//	    // (a constant on your server) and belongs to a user your server
+//	    // started a verification for. A success alone is not enough: an ID
+//	    // verification passes without proving any age.
+//	    if result.ProvesAge(requiredMinAge) && startedFor(result.ExternalUserID) {
+//	        // grant access to result.ExternalUserID
+//	    }
 //	}
 func (s *WebhookService) ConstructEvent(payload []byte, signature, secret string, tolerance ...time.Duration) (*WebhookEvent, error) {
 	tol := DefaultWebhookTolerance

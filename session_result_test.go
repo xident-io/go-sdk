@@ -2,6 +2,7 @@ package xident
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -265,40 +266,74 @@ func TestSessionResult_TolerantOfLegacyVerbosePayload(t *testing.T) {
 // nobody actually cleared.
 func TestSessionResult_AgeBracket(t *testing.T) {
 	tests := []struct {
-		name  string
-		check AgeCheck
-		want  *int
+		name   string
+		status SessionStatus
+		test   bool
+		check  AgeCheck
+		want   *int
 	}{
 		{
-			name:  "performed and passed",
-			check: AgeCheck{Performed: true, Passed: true, Gate: 18},
-			want:  intPtr(18),
+			name:   "passed session, age check passed, gate 18",
+			status: SessionStatusSuccess,
+			check:  AgeCheck{Performed: true, Passed: true, Gate: 18},
+			want:   intPtr(18),
 		},
 		{
-			name:  "performed and passed, bracket 21",
-			check: AgeCheck{Performed: true, Passed: true, Gate: 21},
-			want:  intPtr(21),
+			name:   "passed session, gate 12",
+			status: SessionStatusSuccess,
+			check:  AgeCheck{Performed: true, Passed: true, Gate: 12},
+			want:   intPtr(12),
 		},
 		{
-			name:  "performed and passed, bracket 12",
-			check: AgeCheck{Performed: true, Passed: true, Gate: 12},
-			want:  intPtr(12),
+			// A Xident ID reuse or an EU wallet presentation: the session
+			// passed on an age proven elsewhere, so its own age check did not
+			// run. The gate is the band the API stands behind.
+			name:   "passed session, age check not performed, gate 21",
+			status: SessionStatusSuccess,
+			check:  AgeCheck{Gate: 21},
+			want:   intPtr(21),
 		},
 		{
-			name:  "performed but not passed",
-			check: AgeCheck{Performed: true, Passed: false, Gate: 25},
-			want:  nil,
+			// The same rule as ProvesAge: a failed session proves no band,
+			// whatever its age check said.
+			name:   "failed session, age check passed, gate 21",
+			status: SessionStatusFailed,
+			check:  AgeCheck{Performed: true, Passed: true, Gate: 21},
+			want:   nil,
 		},
 		{
-			name:  "not performed",
-			check: AgeCheck{},
-			want:  nil,
+			name:   "pending session, gate 18",
+			status: SessionStatusPending,
+			check:  AgeCheck{Gate: 18},
+			want:   nil,
+		},
+		{
+			name:   "passed session, no age check at all",
+			status: SessionStatusSuccess,
+			check:  AgeCheck{},
+			want:   nil,
+		},
+		{
+			// An ID verification tests no age threshold, so the API sends no
+			// gate, while a read date of birth makes the check performed and
+			// passed. 0 is not a proven age.
+			name:   "passed ID verification, no gate",
+			status: SessionStatusSuccess,
+			check:  AgeCheck{Performed: true, Passed: true},
+			want:   nil,
+		},
+		{
+			name:   "passed test-key session, gate 21",
+			status: SessionStatusSuccess,
+			test:   true,
+			check:  AgeCheck{Gate: 21},
+			want:   nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &SessionResult{Checks: Checks{Age: tt.check}}
+			s := &SessionResult{Status: tt.status, Verified: tt.status == SessionStatusSuccess, Test: tt.test, Checks: Checks{Age: tt.check}}
 			got := s.AgeBracket()
 
 			if tt.want == nil {
@@ -317,11 +352,63 @@ func TestSessionResult_AgeBracket(t *testing.T) {
 	}
 }
 
+// TestSessionResult_AgeBracket_Goldens runs AgeBracket over the five real
+// result shapes (see proves_age_test.go for where each comes from) and checks
+// it never disagrees with ProvesAge.
+//
+// Mutations caught: requiring checks.age.passed (the reuse and wallet rows
+// fail); dropping the IsVerified check; dropping the test-key check;
+// returning a pointer to 0 for the ID result.
+func TestSessionResult_AgeBracket_Goldens(t *testing.T) {
+	tests := []struct {
+		file          string
+		want          *int // AgeBracket()
+		wantAllowTest *int // AgeBracketAllowingTest()
+	}{
+		{"testdata/tenant_result_v1.golden.json", intPtr(21), intPtr(21)},
+		{"testdata/tenant_result_xident_id_reuse.json", intPtr(21), intPtr(21)},
+		{"testdata/tenant_result_eu_wallet.json", intPtr(21), intPtr(21)},
+		{"testdata/tenant_result_id_no_gate.json", nil, nil},
+		{"testdata/tenant_result_test_mode.json", nil, intPtr(21)},
+	}
+	same := func(a, b *int) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
+	show := func(p *int) string {
+		if p == nil {
+			return "nil"
+		}
+		return fmt.Sprint(*p)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			s := readResultFixture(t, tt.file)
+			if got := s.AgeBracket(); !same(got, tt.want) {
+				t.Errorf("AgeBracket() = %s, want %s", show(got), show(tt.want))
+			}
+			if got := s.AgeBracketAllowingTest(); !same(got, tt.wantAllowTest) {
+				t.Errorf("AgeBracketAllowingTest() = %s, want %s", show(got), show(tt.wantAllowTest))
+			}
+			// AgeBracket and ProvesAge must agree for every age.
+			for _, age := range []int{12, 15, 18, 21, 25} {
+				b := s.AgeBracket()
+				if want := b != nil && *b >= age; s.ProvesAge(age) != want {
+					t.Errorf("ProvesAge(%d) = %v, but AgeBracket() = %s", age, s.ProvesAge(age), show(b))
+				}
+				ba := s.AgeBracketAllowingTest()
+				if want := ba != nil && *ba >= age; s.ProvesAgeAllowingTest(age) != want {
+					t.Errorf("ProvesAgeAllowingTest(%d) = %v, but AgeBracketAllowingTest() = %s",
+						age, s.ProvesAgeAllowingTest(age), show(ba))
+				}
+			}
+		})
+	}
+}
+
 // TestSessionResult_AgeBracket_ReturnsACopy guards against a caller mutating
 // the pointer AgeBracket returns and corrupting the SessionResult it came
 // from -- the two must not alias the same int.
 func TestSessionResult_AgeBracket_ReturnsACopy(t *testing.T) {
-	s := &SessionResult{Checks: Checks{Age: AgeCheck{Performed: true, Passed: true, Gate: 18}}}
+	s := &SessionResult{Status: SessionStatusSuccess, Verified: true, Checks: Checks{Age: AgeCheck{Performed: true, Passed: true, Gate: 18}}}
 
 	got := s.AgeBracket()
 	if got == nil {
@@ -401,3 +488,59 @@ func TestSessionResult_JSONRoundtrip(t *testing.T) {
 
 // Helper function for test pointers.
 func intPtr(i int) *int { return &i }
+
+// TestSessionResult_IDVerificationWithoutGate parses the result shape an ID
+// verification has from the 2026-10 release: the session stores min_age 0,
+// so checks.age.gate is absent, while the document's date of birth makes the
+// age check performed and passed. The result must parse, report the pass,
+// offer no bracket, and write no gate back out.
+//
+// Mutation caught: dropping the Gate guard in AgeBracket (it then returns a
+// pointer to 0, a proven age nobody tested).
+func TestSessionResult_IDVerificationWithoutGate(t *testing.T) {
+	const payload = `{
+		"token": "xtk_id_1",
+		"status": "success",
+		"verified": true,
+		"verification_type": "full",
+		"external_user_id": "usr_1",
+		"checks": {
+			"liveness":   {"performed": true, "passed": true},
+			"age":        {"performed": true, "passed": true},
+			"document":   {"performed": true, "passed": true, "document_type": "passport", "country": "DE"},
+			"face_match": {"performed": true, "passed": true}
+		},
+		"created_at": "2026-10-05T10:00:00Z",
+		"completed_at": "2026-10-05T10:02:00Z"
+	}`
+
+	var s SessionResult
+	if err := json.Unmarshal([]byte(payload), &s); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+	if !s.IsVerified() {
+		t.Error("IsVerified() = false, want true")
+	}
+	if !s.Checks.Age.Performed || !s.Checks.Age.Passed {
+		t.Errorf("Checks.Age = %+v, want performed and passed", s.Checks.Age)
+	}
+	if s.Checks.Age.Gate != 0 {
+		t.Errorf("Checks.Age.Gate = %d, want 0 (absent)", s.Checks.Age.Gate)
+	}
+	if b := s.AgeBracket(); b != nil {
+		t.Errorf("AgeBracket() = %d, want nil: an ID verification proves no age band", *b)
+	}
+
+	out, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatalf("Unmarshal(roundtrip) error: %v", err)
+	}
+	age := back["checks"].(map[string]any)["age"].(map[string]any)
+	if _, present := age["gate"]; present {
+		t.Errorf("roundtrip wrote checks.age.gate = %v; the wire shape has no gate for an ID verification", age["gate"])
+	}
+}

@@ -1,35 +1,99 @@
 // Example: Pure Go HTTP server with Xident verification.
 //
 // This demonstrates the complete integration flow:
-//  1. POST /verify        - create a verification session and redirect the user
+//  1. POST /verify        - create a verification session for the signed-in
+//     user and redirect the browser to the widget
 //  2. GET  /callback      - the browser is redirected back here with the result
-//     token; re-verify server-side (this is the primary flow)
+//     token; decide server-side (this is the primary flow)
 //  3. POST /webhook       - OPTIONAL signed server-to-server notification
 //
 // The callback_url is a plain browser GET redirect, NOT a signed webhook. The
 // widget appends ?status=success|failed|canceled, token=xtk_... (the RESULT
-// token, distinct from the xit_ init token), and user_id (if you supplied one).
+// token, distinct from the xit_ init token), and user_id (the UserID you sent).
+// Anyone can edit those query parameters, so the callback decides from the
+// result alone, and checks it against what THIS server asked for.
 //
 // Run with:
 //
-//	go run main.go
+//	XIDENT_SECRET_KEY=sk_test_xxx go run main.go
 package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	xident "github.com/xident-io/go-sdk/v3"
 )
 
+// requiredMinAge is the age this site needs. It is set here, on the server,
+// and never read from a request: a browser that could send it could also
+// lower it.
+const requiredMinAge = 18
+
+const sessionCookie = "example_session"
+
+// sessionStore stands in for your app's login sessions. It keeps the
+// signed-in user's id on the server, behind an unguessable cookie, so a
+// browser cannot claim to be another user by editing a cookie or the
+// callback URL. In your app, use your real session instead.
+type sessionStore struct {
+	mu    sync.Mutex
+	users map[string]string // session id -> user id
+}
+
+func (s *sessionStore) userID(r *http.Request) (string, bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.users[c.Value]
+	return id, ok
+}
+
+// signIn creates a demo user and a session for it. Your app does this at
+// login; the example has no login, so every new visitor gets a user.
+func (s *sessionStore) signIn(w http.ResponseWriter, r *http.Request) string {
+	sessionID, userID := randomHex(32), "user_"+randomHex(8)
+	s.mu.Lock()
+	s.users[sessionID] = userID
+	s.mu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: sessionID, Path: "/",
+		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode,
+	})
+	return userID
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
 func main() {
-	apiKey := os.Getenv("XIDENT_SECRET_KEY")
+	apiKey := os.Getenv("XIDENT_SECRET_KEY") // sk_live_, sk_test_, ak_live_ or ak_test_
+	// XIDENT_ALLOW_TEST_RESULTS=1 lets a test-key result count as proof, so
+	// a local run with a sk_test_ key can show a pass. A test session settles
+	// without checking anyone: never set it in production. It is refused
+	// with a live key.
+	allowTestResults := os.Getenv("XIDENT_ALLOW_TEST_RESULTS") == "1"
+	if allowTestResults && !strings.HasPrefix(apiKey, "sk_test_") && !strings.HasPrefix(apiKey, "ak_test_") {
+		log.Fatal("XIDENT_ALLOW_TEST_RESULTS=1 is only for a test key (sk_test_ or ak_test_)")
+	}
 	if apiKey == "" {
 		log.Fatal("XIDENT_SECRET_KEY environment variable is required")
 	}
@@ -37,16 +101,25 @@ func main() {
 	client := xident.NewClient(apiKey,
 		xident.WithTimeout(15*time.Second),
 	)
+	sessions := &sessionStore{users: map[string]string{}}
 
 	mux := http.NewServeMux()
 
 	// Start verification: creates a session and redirects the user.
 	mux.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := sessions.userID(r)
+		if !ok {
+			userID = sessions.signIn(w, r)
+		}
+
 		result, _, err := client.Verification.Init(r.Context(), &xident.InitParams{
 			// The browser is redirected back to CallbackURL when the flow ends.
 			CallbackURL: "https://example.com/callback",
-			MinAge:      18,
-			UserID:      "user_123",
+			// The age this site needs, from the server. Xident rounds it up
+			// to the next of 12, 15, 18, 21 or 25 (19 is enforced as 21).
+			MinAge: requiredMinAge,
+			// UserID is required: the signed-in user's id, from the server.
+			UserID: userID,
 			// SuccessURL / FailedURL are optional status-specific redirect
 			// overrides; the callback query params carry the result either way.
 		})
@@ -62,13 +135,14 @@ func main() {
 
 	// Callback: the widget redirects the browser here after verification with
 	//   ?status=success|failed|canceled&token=xtk_...&user_id=...
-	// ALWAYS re-verify server-side -- never trust the query params alone.
+	// Decide server-side from the result -- never from the query params.
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		status := q.Get("status") // "success", "failed", or "canceled"
-		token := q.Get("token")   // the RESULT token (xtk_...)
-		userID := q.Get("user_id")
-
+		userID, ok := sessions.userID(r)
+		if !ok {
+			http.Error(w, "Sign in first", http.StatusUnauthorized)
+			return
+		}
+		token := r.URL.Query().Get("token") // the RESULT token (xtk_...)
 		if token == "" {
 			http.Error(w, "Missing token", 400)
 			return
@@ -83,21 +157,21 @@ func main() {
 			return
 		}
 
+		// Grant access only when both hold:
+		//   - the session passed and proves the age THIS site needs
+		//     (ProvesAge: success, and checks.age.gate >= requiredMinAge;
+		//     an ID verification has no gate and proves no age);
+		//   - the result belongs to THIS signed-in user, not to whoever
+		//     earned the token someone pasted into the URL.
+		provesAge := session.ProvesAge(requiredMinAge) // refuses a test-key result
+		if allowTestResults {
+			provesAge = session.ProvesAgeAllowingTest(requiredMinAge)
+		}
+		verified := provesAge && session.ExternalUserID == userID
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"callback_status": status, // same vocabulary as the result endpoint
-			"user_id":         userID,
-			"verified":        session.IsVerified(),
-			"status":          session.Status, // American "canceled" from /result
-			// AgeBracket() reads session.Checks.Age (Gate, guarded by Passed) --
-			// no more parsing an "age_result" blob by hand.
-			"age_bracket": session.AgeBracket(),
-			// Method() is session.VerificationType -- which PATH ran:
-			// "full" (document + face match), "age_check" (browser-only),
-			// "xident_id" (Xident-ID reuse) or "eu_wallet". Not the
-			// client-side ML method name older SDK versions returned here.
-			"method":   session.Method(),
-			"terminal": session.IsTerminal(),
+			"verified": verified,
 		})
 	})
 
@@ -121,6 +195,10 @@ func main() {
 				return
 			}
 
+			// event.Data is the same tenant result GetResult returns. To grant
+			// access from a webhook, decode it into xident.SessionResult and
+			// apply the same checks as the callback: ProvesAge with your own
+			// required age, and ExternalUserID against your own user.
 			switch event.Type {
 			// "session.completed" is the pre-July-2026 name; an endpoint
 			// registered before then still receives it.
