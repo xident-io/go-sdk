@@ -68,9 +68,10 @@ type BlacklistRemoveResult struct {
 // fields are required.
 type BlacklistAddSessionParams struct {
 	// SessionToken is the token of one of YOUR terminal DOCUMENT
-	// verification sessions. Works for 12 months after the session: the
-	// face embedding is retained for that period and then permanently
-	// deleted.
+	// verification sessions. Works for as long as your data retention
+	// setting keeps the session's face embedding (0, 30, 90, 180 or 365
+	// days, default 365, set in the dashboard); after that the embedding
+	// is permanently deleted.
 	//
 	// A browser-only (Path A) session never captured a face and is
 	// rejected with SESSION_HAS_NO_FACE_DATA — retrying never helps. One
