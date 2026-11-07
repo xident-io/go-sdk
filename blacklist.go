@@ -68,13 +68,20 @@ type BlacklistRemoveResult struct {
 // fields are required.
 type BlacklistAddSessionParams struct {
 	// SessionToken is the token of one of YOUR terminal DOCUMENT
-	// verification sessions. Works for 12 months after the session: the
-	// face embedding is retained for that period and then permanently
-	// deleted.
+	// verification sessions. Works for as long as your data retention
+	// setting keeps the session's face embedding (0, 30, 90, 180 or 365
+	// days, default 365, set in the dashboard); after that the embedding
+	// is permanently deleted. The period is fixed when the embedding is
+	// stored: raising the setting later does not extend an older session,
+	// and lowering it deletes older ones. Without a stored embedding (for
+	// example with 0 days), blacklisting works only while the session's
+	// selfie is still stored (deleted within 24 hours of upload; about 23
+	// hours by default), and only if the session took a selfie.
 	//
 	// A browser-only (Path A) session never captured a face and is
 	// rejected with SESSION_HAS_NO_FACE_DATA — retrying never helps. One
-	// past its retention window is rejected with
+	// whose face data is no longer available (past your retention period
+	// and more than 24 hours old) is rejected with
 	// SESSION_FACE_DATA_EXPIRED.
 	SessionToken string `json:"session_token"`
 
@@ -139,10 +146,14 @@ func (s *BlacklistService) List(ctx context.Context, opts *BlacklistListOptions)
 
 // AddBySession blacklists the person from one of your verification sessions.
 //
-// The server lifts the selfie from the session and derives the embedding
-// asynchronously -- the entry appears in List once processed. The session
-// must be terminal; a still-running session is rejected with HTTP 409
-// (returned as a *ValidationError).
+// The server uses the session's stored face embedding or, if there is none,
+// the session's selfie, and adds the entry asynchronously -- the entry
+// appears in List once processed. Without a stored embedding (for example
+// with 0 days), blacklisting works only while the session's selfie is still
+// stored (deleted within 24 hours of upload; about 23 hours by default), and
+// only if the session took a selfie. The session must be terminal; a
+// still-running session is rejected with HTTP 409 (returned as a
+// *ValidationError).
 func (s *BlacklistService) AddBySession(ctx context.Context, params *BlacklistAddSessionParams) (*BlacklistAddResult, *Response, error) {
 	if params == nil {
 		return nil, nil, fmt.Errorf("xident: params cannot be nil")
