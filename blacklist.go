@@ -73,9 +73,10 @@ type BlacklistAddSessionParams struct {
 	// days, default 365, set in the dashboard); after that the embedding
 	// is permanently deleted. The period is fixed when the embedding is
 	// stored: raising the setting later does not extend an older session,
-	// and lowering it deletes older ones. With 0 days no embedding is
-	// stored, but a session less than 24 hours old can still be
-	// blacklisted, from the selfie still in storage.
+	// and lowering it deletes older ones. Without a stored embedding (for
+	// example with 0 days), blacklisting works only while the session's
+	// selfie is still stored (deleted within 24 hours of upload; about 23
+	// hours by default), and only if the session took a selfie.
 	//
 	// A browser-only (Path A) session never captured a face and is
 	// rejected with SESSION_HAS_NO_FACE_DATA — retrying never helps. One
@@ -145,11 +146,14 @@ func (s *BlacklistService) List(ctx context.Context, opts *BlacklistListOptions)
 
 // AddBySession blacklists the person from one of your verification sessions.
 //
-// The server uses the session's stored face embedding or, for a session
-// less than 24 hours old, the selfie still in storage, and adds the entry
-// asynchronously -- the entry appears in List once processed. The session
-// must be terminal; a still-running session is rejected with HTTP 409
-// (returned as a *ValidationError).
+// The server uses the session's stored face embedding or, if there is none,
+// the session's selfie, and adds the entry asynchronously -- the entry
+// appears in List once processed. Without a stored embedding (for example
+// with 0 days), blacklisting works only while the session's selfie is still
+// stored (deleted within 24 hours of upload; about 23 hours by default), and
+// only if the session took a selfie. The session must be terminal; a
+// still-running session is rejected with HTTP 409 (returned as a
+// *ValidationError).
 func (s *BlacklistService) AddBySession(ctx context.Context, params *BlacklistAddSessionParams) (*BlacklistAddResult, *Response, error) {
 	if params == nil {
 		return nil, nil, fmt.Errorf("xident: params cannot be nil")

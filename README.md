@@ -306,7 +306,7 @@ never returned.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `Blacklist.List(ctx, opts)` | `GET /blacklist` | Page through active entries (`Page`, `PerPage` max 100; nil opts = server defaults) |
-| `Blacklist.AddBySession(ctx, params)` | `POST /blacklist/session` | Blacklist the person from one of your terminal document sessions (works while your data retention setting keeps its face embedding, at most 12 months, a period fixed when the embedding is stored; with 0 days, only within 24 hours of the session, from the stored selfie) |
+| `Blacklist.AddBySession(ctx, params)` | `POST /blacklist/session` | Blacklist the person from one of your terminal document sessions. Works while your data retention setting keeps its face embedding (at most 12 months, a period fixed when the embedding is stored). Without a stored embedding (for example with 0 days), blacklisting works only while the session's selfie is still stored (deleted within 24 hours of upload; about 23 hours by default), and only if the session took a selfie. |
 | `Blacklist.AddByImage(ctx, params)` | `POST /blacklist/image` | Blacklist the face in a base64 image |
 | `Blacklist.Remove(ctx, id)` | `DELETE /blacklist/{id}` | Deactivate an entry (un-ban) |
 
